@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const settings = require('./settings');
+const { getJson, saveJson } = require('./db');
 const {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -17,17 +18,16 @@ const {
 } = require('discord.js');
 
 const FILES = {
-  ECONOMY: path.join(__dirname, 'economy_data.json'),
-  WARNS: path.join(__dirname, 'warns_data.json'),
-  ADMIN: path.join(__dirname, 'admin_data.json'),
-  GIVEAWAYS: path.join(__dirname, 'giveaways_data.json'),
-  STAFF_RATING: path.join(__dirname, 'staff_rating.json'),
-  CUSTOM_PANELS: path.join(__dirname, 'panels_custom.json')
+  ECONOMY: 'economy_data.json',
+  WARNS: 'warns_data.json',
+  ADMIN: 'admin_data.json',
+  GIVEAWAYS: 'giveaways_data.json',
+  STAFF_RATING: 'staff_rating.json',
+  CUSTOM_PANELS: 'panels_custom.json'
 };
 
 const vodRequestsCache = new Map();
 
-// Список всех панелей, доступных для редактирования через админ-панель
 const EDITABLE_PANELS = {
   ADMIN_PANEL: { name: '🛠 Админ-панель (/админ_панель)', getCfg: () => settings.PANELS.ADMIN_PANEL },
   RECRUIT: { name: '👋 Рекрутинг (/панель_рекрутинга)', getCfg: () => settings.PANELS.RECRUIT },
@@ -46,19 +46,6 @@ const EDITABLE_PANELS = {
   GIVEAWAY_PANEL: { name: '🎉 Розыгрыши (/панель_розыгрышей)', getCfg: () => settings.PANELS.EXTRA.GIVEAWAY_PANEL },
   WARNS_INFO: { name: '⚠️ Инфо о выговорах (/панель_информация)', getCfg: () => settings.PANELS.WARNS.INFO_PANEL }
 };
-
-function loadJson(filePath, fallback = {}) {
-  if (!fs.existsSync(filePath)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-function saveJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-}
 
 function hasAdminAccess(member) {
   if (!member) return false;
@@ -140,36 +127,33 @@ function buildAdminPanelRows() {
 
 async function syncWarnRoles(member, count) {
   if (!member) return;
-  const w1 = config.ROLES.WARN_1;
-  const w2 = config.ROLES.WARN_2;
-  const w3 = config.ROLES.WARN_3;
+  const { WARN_1: w1, WARN_2: w2, WARN_3: w3 } = config.ROLES;
+  const tasks = [];
 
-  try {
-    if (count <= 0) {
-      if (w1) await member.roles.remove(w1).catch(() => {});
-      if (w2) await member.roles.remove(w2).catch(() => {});
-      if (w3) await member.roles.remove(w3).catch(() => {});
-    } else if (count === 1) {
-      if (w2) await member.roles.remove(w2).catch(() => {});
-      if (w3) await member.roles.remove(w3).catch(() => {});
-      if (w1) await member.roles.add(w1).catch(() => {});
-    } else if (count === 2) {
-      if (w1) await member.roles.remove(w1).catch(() => {});
-      if (w3) await member.roles.remove(w3).catch(() => {});
-      if (w2) await member.roles.add(w2).catch(() => {});
-    } else if (count >= 3) {
-      if (w1) await member.roles.remove(w1).catch(() => {});
-      if (w2) await member.roles.remove(w2).catch(() => {});
-      if (w3) await member.roles.add(w3).catch(() => {});
-    }
-  } catch (err) {
-    console.error('Ошибка синхронизации ролей выговоров:', err);
+  if (count <= 0) {
+    if (w1) tasks.push(member.roles.remove(w1));
+    if (w2) tasks.push(member.roles.remove(w2));
+    if (w3) tasks.push(member.roles.remove(w3));
+  } else if (count === 1) {
+    if (w2) tasks.push(member.roles.remove(w2));
+    if (w3) tasks.push(member.roles.remove(w3));
+    if (w1) tasks.push(member.roles.add(w1));
+  } else if (count === 2) {
+    if (w1) tasks.push(member.roles.remove(w1));
+    if (w3) tasks.push(member.roles.remove(w3));
+    if (w2) tasks.push(member.roles.add(w2));
+  } else if (count >= 3) {
+    if (w1) tasks.push(member.roles.remove(w1));
+    if (w2) tasks.push(member.roles.remove(w2));
+    if (w3) tasks.push(member.roles.add(w3));
   }
+
+  await Promise.allSettled(tasks);
 }
 
-async function sendAdminLog(guild, title, description, color = '#5865F2') {
+function sendAdminLog(guild, title, description, color = '#5865F2') {
   if (!guild || !config.CHANNELS.ADMIN_LOGS) return;
-  const ch = await guild.channels.fetch(config.CHANNELS.ADMIN_LOGS).catch(() => null);
+  const ch = guild.channels.cache.get(config.CHANNELS.ADMIN_LOGS);
   if (!ch) return;
 
   const embed = new EmbedBuilder()
@@ -178,7 +162,7 @@ async function sendAdminLog(guild, title, description, color = '#5865F2') {
     .setColor(color)
     .setTimestamp();
 
-  await ch.send({ embeds: [embed] }).catch(() => {});
+  ch.send({ embeds: [embed] }).catch(() => {});
 }
 
 const adminCommand = new SlashCommandBuilder()
@@ -196,7 +180,7 @@ async function handleAdmin(interaction, client) {
 
   // Участие в розыгрыше доступно всем
   if (interaction.isButton() && interaction.customId === 'ap_gw_join') {
-    const giveaways = loadJson(FILES.GIVEAWAYS, {});
+    const giveaways = getJson(FILES.GIVEAWAYS, {});
     const gw = giveaways[interaction.message.id];
 
     if (!gw || gw.ended) {
@@ -232,7 +216,7 @@ async function handleAdmin(interaction, client) {
     });
   }
 
-    // 1. ОТПРАВКА ПАНЕЛИ (/админ_панель)
+  // 1. ОТПРАВКА ПАНЕЛИ (/админ_панель)
   if (interaction.isChatInputCommand() && interaction.commandName === 'админ_панель') {
     const embed = buildAdminPanelEmbed(interaction.guild);
     const rows = buildAdminPanelRows();
@@ -242,7 +226,7 @@ async function handleAdmin(interaction, client) {
       components: rows
     });
 
-    const customPanels = loadJson(FILES.CUSTOM_PANELS, {});
+    const customPanels = getJson(FILES.CUSTOM_PANELS, {});
     if (!customPanels.ADMIN_PANEL) customPanels.ADMIN_PANEL = {};
     customPanels.ADMIN_PANEL.channelId = interaction.channel.id;
     customPanels.ADMIN_PANEL.messageId = sentMsg.id;
@@ -251,7 +235,7 @@ async function handleAdmin(interaction, client) {
     return interaction.reply({ content: '✅ Панель управления семьёй успешно опубликована!', ephemeral: true });
   }
 
-  // 2. ОБРАБОТКА КНОПОК
+    // 2. ОБРАБОТКА КНОПОК
   if (interaction.isButton()) {
     const id = interaction.customId;
 
@@ -291,9 +275,9 @@ async function handleAdmin(interaction, client) {
     // Повышение / понижение ранга на 1 ступень
     if (id.startsWith('ap_u_rankup_') || id.startsWith('ap_u_rankdown_')) {
       const isUp = id.startsWith('ap_u_rankup_');
-      const targetId = id.split('_').at(3);
+      const targetId = id.split('_')[3];
 
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+      const member = interaction.guild.members.cache.get(targetId) || await interaction.guild.members.fetch(targetId).catch(() => null);
       if (!member) return interaction.reply({ content: '❌ Участник не найден.', ephemeral: true });
 
       const orderedRanks = [
@@ -320,10 +304,12 @@ async function handleAdmin(interaction, client) {
       const oldRank = currentIndex !== -1 ? orderedRanks[currentIndex] : null;
       const newRank = orderedRanks[nextIndex];
 
-      if (oldRank) await member.roles.remove(oldRank.id).catch(() => {});
-      await member.roles.add(newRank.id).catch(() => {});
+      await Promise.allSettled([
+        oldRank ? member.roles.remove(oldRank.id) : Promise.resolve(),
+        member.roles.add(newRank.id)
+      ]);
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         isUp ? '📈 Повышение ранга (Админ-панель)' : '📉 Понижение ранга (Админ-панель)',
         `**Участник:** <@${targetId}>\n**Ранг:** ${oldRank ? oldRank.name : 'Нет'} ➔ **${newRank.name}**\n**Модератор:** <@${interaction.user.id}>`,
@@ -339,7 +325,7 @@ async function handleAdmin(interaction, client) {
     // Циклическое переключение Tier
     if (id.startsWith('ap_u_tier_')) {
       const targetId = id.replace('ap_u_tier_', '');
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+      const member = interaction.guild.members.cache.get(targetId) || await interaction.guild.members.fetch(targetId).catch(() => null);
       if (!member) return interaction.reply({ content: '❌ Участник не найден.', ephemeral: true });
 
       const allTiers = [config.ROLES.TIER_1, config.ROLES.TIER_2, config.ROLES.TIER_3].filter(Boolean);
@@ -363,7 +349,7 @@ async function handleAdmin(interaction, client) {
       await member.roles.remove(allTiers).catch(() => {});
       if (nextRole) await member.roles.add(nextRole).catch(() => {});
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         '🎯 Изменение Tier участника',
         `**Участник:** <@${targetId}>\n**Новый Tier:** **${nextLabel}**\n**Модератор:** <@${interaction.user.id}>`,
@@ -399,7 +385,7 @@ async function handleAdmin(interaction, client) {
 
     // 📊 Активность участников
     if (id === 'ap_activity') {
-      const ecoData = loadJson(FILES.ECONOMY);
+      const ecoData = getJson(FILES.ECONOMY, {});
       const sorted = Object.entries(ecoData)
         .map(([uid, stats]) => ({
           uid,
@@ -425,9 +411,8 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 🔍 Аудит ролей и ников
+    // 🔍 Аудит ролей и ников (мгновенно из кэша)
     if (id === 'ap_audit') {
-      await interaction.guild.members.fetch().catch(() => {});
       const rankIds = getAllRankRoleIds();
       const famMembers = interaction.guild.members.cache.filter(
         m => !m.user.bot && (!config.ROLES.FAMQ || m.roles.cache.has(config.ROLES.FAMQ))
@@ -464,9 +449,8 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-        // 💼 Контроль личных портфелей
+    // 💼 Контроль личных портфелей (мгновенно из кэша)
     if (id === 'ap_portfolios') {
-      await interaction.guild.members.fetch().catch(() => {});
       const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
       if (!catId) {
         return interaction.reply({ content: '❌ Категория портфелей не указана в `config.js` (`PORTFOLIO_CATEGORY`).', ephemeral: true });
@@ -498,7 +482,7 @@ async function handleAdmin(interaction, client) {
         }
       });
 
-      const embed = new EmbedBuilder()
+            const embed = new EmbedBuilder()
         .setTitle(`💼 Контроль личных портфелей (Всего каналов: ${portfolioChannels.size})`)
         .addFields(
           {
@@ -530,36 +514,31 @@ async function handleAdmin(interaction, client) {
     }
 
     if (id === 'ap_portfolios_clean') {
-      await interaction.guild.members.fetch().catch(() => {});
+      await interaction.deferUpdate();
       const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
-      const portfolioChannels = interaction.guild.channels.cache.filter(ch => ch.parentId === catId);
-
-      let deletedCount = 0;
-      for (const ch of portfolioChannels.values()) {
+      const toDelete = [...interaction.guild.channels.cache.filter(ch => ch.parentId === catId).values()].filter(ch => {
         const match = ch.topic?.match(/Owner ID:\s*(\d+)/);
-        if (match && match[1] && !interaction.guild.members.cache.has(match[1])) {
-          await ch.delete('Очистка портфеля вышедшего участника').catch(() => {});
-          deletedCount++;
-        }
-      }
+        return match && match.at(1) && !interaction.guild.members.cache.has(match.at(1));
+      });
 
-      await sendAdminLog(
+      await Promise.allSettled(toDelete.map(ch => ch.delete('Очистка портфеля вышедшего участника')));
+
+      sendAdminLog(
         interaction.guild,
         '🗑 Очистка заброшенных портфелей',
-        `**Удалено каналов:** ${deletedCount} шт.\n**Модератор:** <@${interaction.user.id}>`,
+        `**Удалено каналов:** ${toDelete.length} шт.\n**Модератор:** <@${interaction.user.id}>`,
         '#E74C3C'
       );
 
-      return interaction.update({
-        content: `✅ Удалено портфелей вышедших участников: **${deletedCount} шт.**`,
+      return interaction.editReply({
+        content: `✅ Удалено портфелей вышедших участников: **${toDelete.length} шт.**`,
         embeds: [],
         components: []
       });
     }
 
-    // ⛔ Чёрный список (ЧС)
     if (id === 'ap_blacklist') {
-      const adminData = loadJson(FILES.ADMIN, { blacklist: [] });
+      const adminData = getJson(FILES.ADMIN, { blacklist: [] });
       const list = Array.isArray(adminData.blacklist) ? adminData.blacklist : [];
 
       const text = list.length > 0
@@ -612,7 +591,6 @@ async function handleAdmin(interaction, client) {
       return interaction.showModal(modal);
     }
 
-    // ⚠️ Выговор
     if (id === 'ap_warns') {
       const select = new UserSelectMenuBuilder()
         .setCustomId('ap_select_warn')
@@ -625,7 +603,6 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-    // 🎥 Запрос откатов у группы игроков
     if (id === 'ap_request_vods') {
       const select = new UserSelectMenuBuilder()
         .setCustomId('ap_select_vods')
@@ -640,7 +617,6 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-    // 🛡 Модерация чата
     if (id === 'ap_mod') {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ap_mod_clear20').setLabel('🧹 Очистить 20').setStyle(ButtonStyle.Danger),
@@ -710,7 +686,6 @@ async function handleAdmin(interaction, client) {
       return interaction.showModal(modal);
     }
 
-    // 💵 Добавить / 📉 Снять баллы
     if (id === 'ap_add_points' || id === 'ap_rem_points') {
       const isAdd = id === 'ap_add_points';
       const select = new UserSelectMenuBuilder()
@@ -724,9 +699,7 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-       // 📅 Отпуск участников
     if (id === 'ap_vacations') {
-      await interaction.guild.members.fetch().catch(() => {});
       const vacMembers = interaction.guild.members.cache.filter(m => m.roles.cache.has(config.ROLES.VACATION));
 
       const desc = vacMembers.size > 0
@@ -741,7 +714,6 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 💤 Статистика АФК
     if (id === 'ap_afk_stats') {
       const afkVoice = config.CHANNELS.AFK_VOICE ? interaction.guild.channels.cache.get(config.CHANNELS.AFK_VOICE) : null;
       const inAfkVoice = afkVoice ? afkVoice.members.filter(m => !m.user.bot) : null;
@@ -758,14 +730,13 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 🛒 Управление магазином
     if (id === 'ap_shop') {
       const items = settings.PANELS.ECONOMY?.shopItems || {};
       const desc = Object.entries(items)
         .map(([key, item]) => `• **${item.label}** (\`${key}\`) — **${item.cost} баллов**\n  *${item.description}*`)
         .join('\n\n');
 
-      const embed = new EmbedBuilder()
+            const embed = new EmbedBuilder()
         .setTitle('🛒 Текущие товары семейного магазина')
         .setDescription(desc || '*Товары не настроены в settings.js*')
         .setFooter({ text: 'Цены и ассортимент настраиваются в settings.js -> ECONOMY.shopItems' })
@@ -774,31 +745,31 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 📋 Управление набором в семью
     if (id === 'ap_recruit_ctl') {
-      const adminData = loadJson(FILES.ADMIN, { recruitOpen: true });
+      const adminData = getJson(FILES.ADMIN, { recruitOpen: true });
+      const isOpen = adminData.recruitOpen !== false;
 
       const embed = new EmbedBuilder()
         .setTitle('📋 Статус набора в семью')
-        .setDescription(`**Текущий статус заявок:** ${adminData.recruitOpen !== false ? '🟢 Открыт' : '🔴 Закрыт'}`)
-        .setColor(adminData.recruitOpen !== false ? '#2ECC71' : '#E74C3C');
+        .setDescription(`**Текущий статус заявок:** ${isOpen ? '🟢 Открыт' : '🔴 Закрыт'}`)
+        .setColor(isOpen ? '#2ECC71' : '#E74C3C');
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('ap_toggle_recruit')
-          .setLabel(adminData.recruitOpen !== false ? '🔴 Закрыть набор' : '🟢 Открыть набор')
-          .setStyle(adminData.recruitOpen !== false ? ButtonStyle.Danger : ButtonStyle.Success)
+          .setLabel(isOpen ? '🔴 Закрыть набор' : '🟢 Открыть набор')
+          .setStyle(isOpen ? ButtonStyle.Danger : ButtonStyle.Success)
       );
 
       return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     }
 
     if (id === 'ap_toggle_recruit') {
-      const adminData = loadJson(FILES.ADMIN, { recruitOpen: true });
+      const adminData = getJson(FILES.ADMIN, { recruitOpen: true });
       adminData.recruitOpen = adminData.recruitOpen === false;
       saveJson(FILES.ADMIN, adminData);
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         '📋 Изменён статус набора',
         `**Новый статус:** ${adminData.recruitOpen ? '🟢 Открыт' : '🔴 Закрыт'}\n**Изменил:** <@${interaction.user.id}>`,
@@ -816,9 +787,8 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-    // 🕵️ Актив рекрутов
     if (id === 'ap_recruit_stats') {
-      const rating = loadJson(FILES.STAFF_RATING, {});
+      const rating = getJson(FILES.STAFF_RATING, {});
       const entries = Object.entries(rating)
         .map(([uid, st]) => ({
           uid,
@@ -843,10 +813,7 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 👑 Состав стаффа
     if (id === 'ap_staff_list') {
-      await interaction.guild.members.fetch().catch(() => {});
-
       const getRoleMembers = (roleId) => {
         if (!roleId) return 'Не настроено';
         const role = interaction.guild.roles.cache.get(roleId);
@@ -869,7 +836,6 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // 🎉 Запуск интерактивного розыгрыша
     if (id === 'ap_giveaway') {
       const modal = new ModalBuilder()
         .setCustomId('ap_modal_giveaway')
@@ -896,9 +862,8 @@ async function handleAdmin(interaction, client) {
       return interaction.showModal(modal);
     }
 
-    // 🏆 Завершение розыгрыша
     if (id === 'ap_gw_end') {
-      const giveaways = loadJson(FILES.GIVEAWAYS, {});
+      const giveaways = getJson(FILES.GIVEAWAYS, {});
       const gw = giveaways[interaction.message.id];
 
       if (!gw || gw.ended) {
@@ -931,7 +896,7 @@ async function handleAdmin(interaction, client) {
         components: []
       });
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         '🎉 Завершён розыгрыш',
         `**Приз:** ${gw.prize}\n**Победители:** ${winnersMentions}\n**Завершил:** <@${interaction.user.id}>`,
@@ -940,7 +905,6 @@ async function handleAdmin(interaction, client) {
       return true;
     }
 
-    // 💾 Бэкап баз данных (JSON)
     if (id === 'ap_backup') {
       const fileNames = [
         'economy_data.json',
@@ -970,11 +934,10 @@ async function handleAdmin(interaction, client) {
     }
   }
 
-    // 3. ОБРАБОТКА ВЫБОРА В МЕНЮ (StringSelectMenu и UserSelectMenu)
+  // 3. ОБРАБОТКА ВЫБОРА В МЕНЮ (StringSelectMenu и UserSelectMenu)
   if (interaction.isStringSelectMenu()) {
     const id = interaction.customId;
 
-    // Выбор конкретной панели для редактирования
     if (id.startsWith('ap_select_edit_panel_')) {
       const adminMsgId = id.replace('ap_select_edit_panel_', '');
       const panelKey = interaction.values.at(0);
@@ -984,7 +947,7 @@ async function handleAdmin(interaction, client) {
       }
 
       const defaultCfg = panelEntry.getCfg();
-      const customPanels = loadJson(FILES.CUSTOM_PANELS, {});
+      const customPanels = getJson(FILES.CUSTOM_PANELS, {});
       const custom = customPanels[panelKey] || {};
 
       const defaultMsgLink = panelKey === 'ADMIN_PANEL'
@@ -1047,7 +1010,6 @@ async function handleAdmin(interaction, client) {
   if (interaction.isUserSelectMenu()) {
     const id = interaction.customId;
 
-    // Массовый запрос откатов
     if (id === 'ap_select_vods') {
       const selectedIds = [...interaction.values];
       const token = `${Date.now().toString(36)}`;
@@ -1081,15 +1043,14 @@ async function handleAdmin(interaction, client) {
 
     const targetId = interaction.values.at(0);
 
-    // Карточка управления игроком
     if (id === 'ap_select_manage_user') {
-      const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+      const member = interaction.guild.members.cache.get(targetId) || await interaction.guild.members.fetch(targetId).catch(() => null);
       if (!member) {
         return interaction.update({ content: '❌ Участник не найден на сервере.', components: [] });
       }
 
-      const ecoData = loadJson(FILES.ECONOMY);
-      const warns = loadJson(FILES.WARNS);
+      const ecoData = getJson(FILES.ECONOMY, {});
+      const warns = getJson(FILES.WARNS, {});
       const pts = ecoData[targetId]?.points || 0;
       const warnCount = warns[targetId] || 0;
 
@@ -1123,7 +1084,6 @@ async function handleAdmin(interaction, client) {
       return interaction.update({ content: '', embeds: [embed], components: [row1] });
     }
 
-    // Выбор для выговоров
     if (id === 'ap_select_warn') {
       const modal = new ModalBuilder()
         .setCustomId(`ap_modal_warn_${targetId}`)
@@ -1150,7 +1110,6 @@ async function handleAdmin(interaction, client) {
       return interaction.showModal(modal);
     }
 
-    // Выбор для начисления/снятия баллов
     if (id === 'ap_select_pts_add' || id === 'ap_select_pts_rem') {
       const isAdd = id === 'ap_select_pts_add';
       const modal = new ModalBuilder()
@@ -1183,7 +1142,6 @@ async function handleAdmin(interaction, client) {
   if (interaction.isModalSubmit()) {
     const id = interaction.customId;
 
-        // Сохранение нового оформления и картинки выбранной панели
     if (id.startsWith('ap_modal_edit_panel_')) {
       const panelKey = id.replace('ap_modal_edit_panel_', '');
       const panelEntry = EDITABLE_PANELS[panelKey];
@@ -1202,7 +1160,7 @@ async function handleAdmin(interaction, client) {
         });
       }
 
-      const customPanels = loadJson(FILES.CUSTOM_PANELS, {});
+      const customPanels = getJson(FILES.CUSTOM_PANELS, {});
       if (!customPanels[panelKey]) customPanels[panelKey] = {};
 
       customPanels[panelKey].title = title;
@@ -1212,8 +1170,8 @@ async function handleAdmin(interaction, client) {
 
       const linkMatch = msgLinkRaw.match(/(\d{17,20})\/(\d{17,20})$/);
       if (linkMatch) {
-        customPanels[panelKey].channelId = linkMatch[1];
-        customPanels[panelKey].messageId = linkMatch[2];
+        customPanels[panelKey].channelId = linkMatch.at(1);
+        customPanels[panelKey].messageId = linkMatch.at(2);
       }
 
       saveJson(FILES.CUSTOM_PANELS, customPanels);
@@ -1223,7 +1181,7 @@ async function handleAdmin(interaction, client) {
       const mId = customPanels[panelKey].messageId;
 
       if (chId && mId) {
-        const targetCh = await interaction.guild.channels.fetch(chId).catch(() => null);
+        const targetCh = interaction.guild.channels.cache.get(chId) || await interaction.guild.channels.fetch(chId).catch(() => null);
         const targetMsg = targetCh ? await targetCh.messages.fetch(mId).catch(() => null) : null;
 
         if (targetMsg && targetMsg.embeds.length > 0) {
@@ -1231,10 +1189,8 @@ async function handleAdmin(interaction, client) {
           const newEmbed = EmbedBuilder.from(oldEmbed)
             .setTitle(title)
             .setDescription(description)
-            .setColor(color);
-
-          if (image) newEmbed.setImage(image);
-          else newEmbed.setImage(null);
+            .setColor(color)
+            .setImage(image || null);
 
           await targetMsg.edit({ embeds: [newEmbed] }).catch(() => {});
           updatedInChat = true;
@@ -1249,8 +1205,8 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-    // Отправка запроса откатов в ЛС выбранным игрокам
     if (id.startsWith('ap_modal_vods_')) {
+      await interaction.deferReply({ ephemeral: true });
       const token = id.replace('ap_modal_vods_', '');
       const userIds = vodRequestsCache.get(token) || [];
       vodRequestsCache.delete(token);
@@ -1258,30 +1214,31 @@ async function handleAdmin(interaction, client) {
       const eventName = interaction.fields.getTextInputValue('vod_event').trim();
       const deadline = interaction.fields.getTextInputValue('vod_deadline').trim();
 
+      const dmEmbed = new EmbedBuilder()
+        .setTitle('🎥 Запрос видеозаписи (отката)')
+        .setColor('#E74C3C')
+        .setDescription(
+          `Руководство семьи **${interaction.guild.name}** запрашивает у вас откат!\n\n` +
+          `📌 **Мероприятие:** ${eventName}\n` +
+          `⏳ **Инструкция:** ${deadline}\n` +
+          `👮 **Запросил:** <@${interaction.user.id}>`
+        )
+        .setTimestamp();
+
       let sentCount = 0;
       const failedMentions = [];
 
-      for (const uid of userIds) {
-        const user = await client.users.fetch(uid).catch(() => null);
-        if (!user) continue;
+      await Promise.allSettled(
+        userIds.map(async (uid) => {
+          const user = await client.users.fetch(uid).catch(() => null);
+          if (!user) return;
+          const ok = await user.send({ embeds: [dmEmbed] }).then(() => true).catch(() => false);
+          if (ok) sentCount++;
+          else failedMentions.push(`<@${uid}>`);
+        })
+      );
 
-        const dmEmbed = new EmbedBuilder()
-          .setTitle('🎥 Запрос видеозаписи (отката)')
-          .setColor('#E74C3C')
-          .setDescription(
-            `Руководство семьи **${interaction.guild.name}** запрашивает у вас откат!\n\n` +
-            `📌 **Мероприятие:** ${eventName}\n` +
-            `⏳ **Инструкция:** ${deadline}\n` +
-            `👮 **Запросил:** <@${interaction.user.id}>`
-          )
-          .setTimestamp();
-
-        const ok = await user.send({ embeds: [dmEmbed] }).then(() => true).catch(() => false);
-        if (ok) sentCount++;
-        else failedMentions.push(`<@${uid}>`);
-      }
-
-      await sendAdminLog(
+            sendAdminLog(
         interaction.guild,
         '🎥 Запрос откатов у состава',
         `**Мероприятие:** ${eventName}\n**Получатели:** ${userIds.map(u => `<@${u}>`).join(', ')}\n**Запросил:** <@${interaction.user.id}>`,
@@ -1293,14 +1250,14 @@ async function handleAdmin(interaction, client) {
         replyText += `\n⚠️ Закрыта личка у: ${failedMentions.join(', ')}`;
       }
 
-      return interaction.reply({ content: replyText, ephemeral: true });
+      return interaction.editReply({ content: replyText });
     }
 
     // Смена ника игроку
     if (id.startsWith('ap_modal_unick_')) {
       const userId = id.replace('ap_modal_unick_', '');
       const newNick = interaction.fields.getTextInputValue('new_nick').trim();
-      const member = await interaction.guild.members.fetch(userId).catch(() => null);
+      const member = interaction.guild.members.cache.get(userId) || await interaction.guild.members.fetch(userId).catch(() => null);
 
       if (!member) {
         return interaction.reply({ content: '❌ Участник не найден на сервере.', ephemeral: true });
@@ -1312,7 +1269,7 @@ async function handleAdmin(interaction, client) {
         return interaction.reply({ content: '❌ Не удалось сменить ник (роль игрока выше роли бота).', ephemeral: true });
       }
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         '✏️ Смена ника игроку',
         `**Участник:** <@${userId}>\n**Старый ник:** \`${oldNick}\`\n**Новый ник:** \`${newNick}\`\n**Изменил:** <@${interaction.user.id}>`,
@@ -1329,7 +1286,7 @@ async function handleAdmin(interaction, client) {
     if (id === 'ap_modal_bl_add' || id === 'ap_modal_bl_rem') {
       const isAdd = id === 'ap_modal_bl_add';
       const userId = interaction.fields.getTextInputValue('bl_id').trim();
-      const adminData = loadJson(FILES.ADMIN, { recruitOpen: true, blacklist: [], leftMembers: [] });
+      const adminData = getJson(FILES.ADMIN, { recruitOpen: true, blacklist: [], leftMembers: [] });
       if (!Array.isArray(adminData.blacklist)) adminData.blacklist = [];
 
       if (isAdd) {
@@ -1337,7 +1294,7 @@ async function handleAdmin(interaction, client) {
         adminData.blacklist.push({ userId, reason, by: interaction.user.username });
         saveJson(FILES.ADMIN, adminData);
 
-        await sendAdminLog(
+        sendAdminLog(
           interaction.guild,
           '⛔ Занесение в ЧС семьи',
           `**ID / Статик:** \`${userId}\`\n**Причина:** ${reason}\n**Выдал:** <@${interaction.user.id}>`,
@@ -1349,7 +1306,7 @@ async function handleAdmin(interaction, client) {
         adminData.blacklist = adminData.blacklist.filter(x => x.userId !== userId);
         saveJson(FILES.ADMIN, adminData);
 
-        await sendAdminLog(
+        sendAdminLog(
           interaction.guild,
           '🟢 Удаление из ЧС семьи',
           `**ID / Статик:** \`${userId}\`\n**Снял:** <@${interaction.user.id}>`,
@@ -1384,7 +1341,7 @@ async function handleAdmin(interaction, client) {
       const act = interaction.fields.getTextInputValue('w_action').trim();
       const reason = interaction.fields.getTextInputValue('w_reason');
 
-      const warns = loadJson(FILES.WARNS);
+      const warns = getJson(FILES.WARNS, {});
       const current = warns[userId] || 0;
       const delta = act.startsWith('-') ? -1 : 1;
       const updated = Math.max(0, current + delta);
@@ -1393,7 +1350,7 @@ async function handleAdmin(interaction, client) {
       else warns[userId] = updated;
       saveJson(FILES.WARNS, warns);
 
-      const member = await interaction.guild.members.fetch(userId).catch(() => null);
+      const member = interaction.guild.members.cache.get(userId) || await interaction.guild.members.fetch(userId).catch(() => null);
       await syncWarnRoles(member, updated);
 
       let extraNote = '';
@@ -1406,15 +1363,14 @@ async function handleAdmin(interaction, client) {
         extraNote = '\n🚨 **Достигнут лимит 3/3 — семейные роли автоматически сняты.**';
       }
 
-      const targetUser = await client.users.fetch(userId).catch(() => null);
-      if (targetUser) {
-        await targetUser.send(
+      client.users.fetch(userId).then(targetUser => {
+        targetUser.send(
           `${delta > 0 ? '⚠️ Вам выдан выговор' : '🟢 С вас снят выговор'} в семье **${interaction.guild.name}**!\n` +
           `**Текущий счётчик:** ${updated}/3\n**Причина:** ${reason}`
         ).catch(() => {});
-      }
+      }).catch(() => {});
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         delta > 0 ? '⚠️ Выдан выговор (Админ-панель)' : '🟢 Снят выговор (Админ-панель)',
         `**Участник:** <@${userId}>\n**Счётчик:** ${current}/3 ➔ **${updated}/3**\n**Причина:** ${reason}\n**Модератор:** <@${interaction.user.id}>${extraNote}`,
@@ -1427,7 +1383,7 @@ async function handleAdmin(interaction, client) {
       });
     }
 
-        // Начисление / снятие баллов
+    // Начисление / снятие баллов
     if (id.startsWith('ap_modal_pts_')) {
       const parts = id.split('_');
       const isAdd = parts.at(3) === 'add';
@@ -1439,7 +1395,7 @@ async function handleAdmin(interaction, client) {
         return interaction.reply({ content: '❌ Введите корректное положительное число баллов.', ephemeral: true });
       }
 
-      const ecoData = loadJson(FILES.ECONOMY);
+      const ecoData = getJson(FILES.ECONOMY, {});
       if (!ecoData[userId]) ecoData[userId] = { points: 0, voiceMinutes: 0 };
 
       const oldVal = ecoData[userId].points || 0;
@@ -1447,15 +1403,14 @@ async function handleAdmin(interaction, client) {
       ecoData[userId].points = newVal;
       saveJson(FILES.ECONOMY, ecoData);
 
-      const targetUser = await client.users.fetch(userId).catch(() => null);
-      if (targetUser) {
-        await targetUser.send(
+      client.users.fetch(userId).then(targetUser => {
+        targetUser.send(
           `${isAdd ? '💎 Вам начислено' : '📉 С вас списано'} **${amount} баллов** в семье **${interaction.guild.name}**!\n` +
           `**Текущий баланс:** ${newVal} б.\n**Комментарий:** ${reason}`
         ).catch(() => {});
-      }
+      }).catch(() => {});
 
-      await sendAdminLog(
+      sendAdminLog(
         interaction.guild,
         isAdd ? '💵 Начисление баллов' : '📉 Снятие баллов',
         `**Участник:** <@${userId}>\n**Сумма:** ${isAdd ? `+${amount}` : `-${amount}`} б.\n**Новый баланс:** ${newVal} б.\n**Причина:** ${reason}\n**Выполнил:** <@${interaction.user.id}>`,
@@ -1497,7 +1452,7 @@ async function handleAdmin(interaction, client) {
 
       const msg = await interaction.channel.send({ embeds: [gwEmbed], components: [row] });
 
-      const giveaways = loadJson(FILES.GIVEAWAYS, {});
+      const giveaways = getJson(FILES.GIVEAWAYS, {});
       giveaways[msg.id] = {
         prize,
         winnersCount,

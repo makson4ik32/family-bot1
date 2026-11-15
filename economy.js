@@ -1,7 +1,6 @@
 const config = require('./config');
 const settings = require('./settings');
-const fs = require('fs');
-const path = require('path');
+const { getJson, saveJson } = require('./db');
 const {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -20,16 +19,12 @@ const POINT_ACTIVITIES = ECO_CFG.activities;
 const VOICE_CONFIG = ECO_CFG.voice;
 const SHOP_ITEMS = ECO_CFG.shopItems;
 
-const ECONOMY_FILE = path.join(__dirname, 'economy_data.json');
-const WARNS_FILE = path.join(__dirname, 'warns_data.json');
-
 function loadEconomy() {
-  if (!fs.existsSync(ECONOMY_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(ECONOMY_FILE, 'utf8')); } catch { return {}; }
+  return getJson('economy_data.json', {});
 }
 
 function saveEconomy(data) {
-  fs.writeFileSync(ECONOMY_FILE, JSON.stringify(data, null, 2), 'utf8');
+  saveJson('economy_data.json', data);
 }
 
 function getUserStats(data, userId) {
@@ -63,38 +58,15 @@ function buildModalFromFields(customId, title, fieldsList) {
   return modal.addComponents(...rows);
 }
 
-const pointsPanelCommand = new SlashCommandBuilder()
-  .setName('панель_баллов')
-  .setDescription('Отправить панель для сдачи отчётов на баллы и просмотра топа')
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-
-const shopPanelCommand = new SlashCommandBuilder()
-  .setName('панель_магазина')
-  .setDescription('Отправить панель магазина наград за баллы')
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-
-const payoutPanelCommand = new SlashCommandBuilder()
-  .setName('панель_выплат')
-  .setDescription('Отправить панель для подачи заявок на денежную выплату / премию')
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-
-const topPointsCommand = new SlashCommandBuilder()
-  .setName('топ_баллов')
-  .setDescription('Показать топ-15 участников семьи по баллам и онлайну в войсе');
-
-const givePointsCommand = new SlashCommandBuilder()
-  .setName('выдать_баллы')
-  .setDescription('Выдать или списать баллы участнику (для High Staff)')
-  .addUserOption(opt => opt.setName('участник').setDescription('Кому изменить баланс').setRequired(true))
-  .addIntegerOption(opt => opt.setName('количество').setDescription('Сколько баллов (минус для списания, например -50)').setRequired(true))
-  .addStringOption(opt => opt.setName('причина').setDescription('Причина начисления/списания').setRequired(true));
-
 const economyCommands = [
-  pointsPanelCommand,
-  shopPanelCommand,
-  payoutPanelCommand,
-  topPointsCommand,
-  givePointsCommand
+  new SlashCommandBuilder().setName('панель_баллов').setDescription('Отправить панель для сдачи отчётов на баллы и просмотра топа').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('панель_магазина').setDescription('Отправить панель магазина наград за баллы').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('панель_выплат').setDescription('Отправить панель для подачи заявок на денежную выплату / премию').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('топ_баллов').setDescription('Показать топ-15 участников семьи по баллам и онлайну в войсе'),
+  new SlashCommandBuilder().setName('выдать_баллы').setDescription('Выдать или списать баллы участнику (для High Staff)')
+    .addUserOption(opt => opt.setName('участник').setDescription('Кому изменить баланс').setRequired(true))
+    .addIntegerOption(opt => opt.setName('количество').setDescription('Сколько баллов (минус для списания, например -50)').setRequired(true))
+    .addStringOption(opt => opt.setName('причина').setDescription('Причина начисления/списания').setRequired(true))
 ];
 
 function startVoicePointsTracker(client) {
@@ -135,10 +107,7 @@ function buildTopEmbed(ecoData, guildName) {
 
   const medals = ['🥇', '🥈', '🥉'];
   const description = sorted.length > 0
-    ? sorted.map((u, idx) => {
-        const place = medals[idx] || `**${idx + 1}.**`;
-        return `${place} <@${u.id}> — **${u.points} б.** *(войс: ${formatVoiceTime(u.voiceMinutes)})*`;
-      }).join('\n')
+    ? sorted.map((u, idx) => `${medals[idx] || `**${idx + 1}.**`} <@${u.id}> — **${u.points} б.** *(войс: ${formatVoiceTime(u.voiceMinutes)})*`).join('\n')
     : '*Пока никто не заработал баллы. Будь первым!*';
 
   return new EmbedBuilder()
@@ -150,120 +119,67 @@ function buildTopEmbed(ecoData, guildName) {
 }
 
 async function handleEconomy(interaction, client) {
-  // 1. /панель_баллов
   if (interaction.isChatInputCommand() && interaction.commandName === 'панель_баллов') {
     const pCfg = ECO_CFG.POINTS_PANEL;
-    const activitiesList = Object.values(POINT_ACTIVITIES)
-      .map(a => `• **${a.label}** — \`+${a.points} баллов\` *(${a.desc})*`)
-      .join('\n');
+    const activitiesList = Object.values(POINT_ACTIVITIES).map(a => `• **${a.label}** — \`+${a.points} баллов\` *(${a.desc})*`).join('\n');
+    const fullDesc = `${pCfg.description}\n\n**Расценки за задания:**\n${activitiesList}\n\n**🎙 Бонус за голосовой онлайн:**\n• Нахождение в голосовых каналах семьи (со включённым звуком) приносит **+${VOICE_CONFIG.POINTS_PER_INTERVAL} баллов** каждые **${VOICE_CONFIG.CHECK_INTERVAL_MINUTES} минут**!`;
 
-    const fullDesc =
-      `${pCfg.description}\n\n` +
-      `**Расценки за задания:**\n${activitiesList}\n\n` +
-      `**🎙 Бонус за голосовой онлайн:**\n` +
-      `• Нахождение в голосовых каналах семьи (со включённым звуком) приносит **+${VOICE_CONFIG.POINTS_PER_INTERVAL} баллов** каждые **${VOICE_CONFIG.CHECK_INTERVAL_MINUTES} минут**!`;
-
-    const embed = settings.applyPanelStyle(
-      new EmbedBuilder().setDescription(fullDesc),
-      { ...pCfg, description: undefined },
-      '#2ECC71'
-    );
-
+    const embed = settings.applyPanelStyle(new EmbedBuilder().setDescription(fullDesc), { ...pCfg, description: undefined }, '#2ECC71');
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('eco_select_activity')
       .setPlaceholder(pCfg.placeholder)
-      .addOptions(
-        Object.entries(POINT_ACTIVITIES).map(([key, info]) => ({
-          label: `${info.label} (+${info.points} б.)`,
-          description: info.desc,
-          value: key
-        }))
-      );
+      .addOptions(Object.entries(POINT_ACTIVITIES).map(([key, info]) => ({ label: `${info.label} (+${info.points} б.)`, description: info.desc, value: key })));
 
     const buttonsRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('eco_my_balance').setLabel('💳 Мой баланс и войс').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('eco_show_top').setLabel('🏆 Топ по баллам').setStyle(ButtonStyle.Primary)
     );
 
-    await interaction.channel.send({
-      embeds: [embed],
-      components: [new ActionRowBuilder().addComponents(selectMenu), buttonsRow]
-    });
+    await interaction.channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(selectMenu), buttonsRow] });
     return interaction.reply({ content: '✅ Панель заработка баллов успешно создана!', ephemeral: true });
   }
 
-  // 2. /панель_магазина
   if (interaction.isChatInputCommand() && interaction.commandName === 'панель_магазина') {
     const sCfg = ECO_CFG.SHOP_PANEL;
-    const itemsList = Object.values(SHOP_ITEMS)
-      .map(item => `• **${item.label}** — **${item.cost} баллов**\n  *${item.description}*`)
-      .join('\n\n');
-
-    const embed = settings.applyPanelStyle(
-      new EmbedBuilder().setDescription(`${sCfg.description}\n\n${itemsList}`),
-      { ...sCfg, description: undefined },
-      '#9B59B6'
-    );
+    const itemsList = Object.values(SHOP_ITEMS).map(item => `• **${item.label}** — **${item.cost} баллов**\n  *${item.description}*`).join('\n\n');
+    const embed = settings.applyPanelStyle(new EmbedBuilder().setDescription(`${sCfg.description}\n\n${itemsList}`), { ...sCfg, description: undefined }, '#9B59B6');
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('eco_shop_buy')
       .setPlaceholder(sCfg.placeholder)
-      .addOptions(
-        Object.entries(SHOP_ITEMS).map(([key, item]) => ({
-          label: `${item.label} — ${item.cost} б.`,
-          description: item.description.slice(0, 100),
-          value: key
-        }))
-      );
+      .addOptions(Object.entries(SHOP_ITEMS).map(([key, item]) => ({ label: `${item.label} — ${item.cost} б.`, description: item.description.slice(0, 100), value: key })));
 
     const btnRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('eco_my_balance').setLabel('💳 Проверить мой баланс').setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.channel.send({
-      embeds: [embed],
-      components: [new ActionRowBuilder().addComponents(selectMenu), btnRow]
-    });
+    await interaction.channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(selectMenu), btnRow] });
     return interaction.reply({ content: '✅ Панель магазина успешно создана!', ephemeral: true });
   }
 
-  // 3. /панель_выплат
   if (interaction.isChatInputCommand() && interaction.commandName === 'панель_выплат') {
     const payCfg = ECO_CFG.PAYOUT_PANEL;
     const embed = settings.applyPanelStyle(new EmbedBuilder(), payCfg, '#F1C40F');
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('eco_request_payout').setLabel(payCfg.buttonLabel).setStyle(ButtonStyle.Success)
-    );
-
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('eco_request_payout').setLabel(payCfg.buttonLabel).setStyle(ButtonStyle.Success));
     await interaction.channel.send({ embeds: [embed], components: [row] });
     return interaction.reply({ content: '✅ Панель запросов на выплату успешно создана!', ephemeral: true });
   }
 
-  // 4. /топ_баллов и кнопка "Топ по баллам"
   if ((interaction.isChatInputCommand() && interaction.commandName === 'топ_баллов') ||
       (interaction.isButton() && interaction.customId === 'eco_show_top')) {
-    const ecoData = loadEconomy();
-    const embed = buildTopEmbed(ecoData, interaction.guild.name);
-    return interaction.reply({ embeds: [embed], ephemeral: interaction.isButton() });
+    return interaction.reply({ embeds: [buildTopEmbed(loadEconomy(), interaction.guild.name)], ephemeral: interaction.isButton() });
   }
 
-    // 5. Кнопка "Мой баланс и войс"
   if (interaction.isButton() && interaction.customId === 'eco_my_balance') {
-    const ecoData = loadEconomy();
-    const stats = getUserStats(ecoData, interaction.user.id);
+    const stats = getUserStats(loadEconomy(), interaction.user.id);
     return interaction.reply({
       content: `💳 **Твоя статистика:**\n• Текущий баланс: **${stats.points} баллов**\n• Время в голосовых каналах: **${formatVoiceTime(stats.voiceMinutes)}**`,
       ephemeral: true
     });
   }
 
-  // 6. /выдать_баллы
-  if (interaction.isChatInputCommand() && interaction.commandName === 'выдать_баллы') {
-    if (!isHighStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Управлять баллами может только High Staff!', ephemeral: true });
-    }
-
+    if (interaction.isChatInputCommand() && interaction.commandName === 'выдать_баллы') {
+    if (!isHighStaff(interaction.member)) return interaction.reply({ content: '❌ Управлять баллами может только High Staff!', ephemeral: true });
     const target = interaction.options.getUser('участник');
     const amount = interaction.options.getInteger('количество');
     const reason = interaction.options.getString('причина');
@@ -273,38 +189,22 @@ async function handleEconomy(interaction, client) {
     stats.points = Math.max(0, stats.points + amount);
     saveEconomy(ecoData);
 
-    return interaction.reply({
-      content: `✅ Баланс игрока <@${target.id}> изменён на **${amount > 0 ? `+${amount}` : amount} б.** (Причина: *${reason}*).\nТекущий баланс: **${stats.points} б.**`
-    });
+    return interaction.reply({ content: `✅ Баланс игрока <@${target.id}> изменён на **${amount > 0 ? `+${amount}` : amount} б.** (Причина: *${reason}*).\nТекущий баланс: **${stats.points} б.**` });
   }
 
-  // ==================== ОТЧЁТЫ НА БАЛЛЫ ====================
   if (interaction.isStringSelectMenu() && interaction.customId === 'eco_select_activity') {
     const actKey = interaction.values[0];
     const actInfo = POINT_ACTIVITIES[actKey];
-    const modal = buildModalFromFields(
-      `eco_submit_${actKey}`,
-      `Отчёт: +${actInfo.points} баллов`,
-      ECO_CFG.POINTS_PANEL.fields
-    );
-    return interaction.showModal(modal);
+    return interaction.showModal(buildModalFromFields(`eco_submit_${actKey}`, `Отчёт: +${actInfo.points} баллов`, ECO_CFG.POINTS_PANEL.fields));
   }
 
   if (interaction.isModalSubmit() && interaction.customId.startsWith('eco_submit_')) {
     const actKey = interaction.customId.replace('eco_submit_', '');
     const actInfo = POINT_ACTIVITIES[actKey];
-
     const reportsChannel = client.channels.cache.get(config.CHANNELS.POINTS_REPORTS);
-    if (!reportsChannel) {
-      return interaction.reply({ content: '❌ Канал проверки баллов не настроен в `config.js` (`POINTS_REPORTS`).', ephemeral: true });
-    }
+    if (!reportsChannel) return interaction.reply({ content: '❌ Канал проверки баллов не настроен в `config.js` (`POINTS_REPORTS`).', ephemeral: true });
 
-    const answerFields = (ECO_CFG.POINTS_PANEL.fields || []).map(f => ({
-      name: f.label,
-      value: interaction.fields.getTextInputValue(f.id) || 'Не указано',
-      inline: false
-    }));
-
+    const answerFields = (ECO_CFG.POINTS_PANEL.fields || []).map(f => ({ name: f.label, value: interaction.fields.getTextInputValue(f.id) || 'Не указано', inline: false }));
     const embed = new EmbedBuilder()
       .setTitle('💎 Заявка на начисление баллов')
       .setColor('#3498DB')
@@ -321,14 +221,12 @@ async function handleEconomy(interaction, client) {
       new ButtonBuilder().setCustomId(`eco_reject_${interaction.user.id}`).setLabel('❌ Отклонить').setStyle(ButtonStyle.Danger)
     );
 
-    await reportsChannel.send({ content: `<@&${config.ROLES.HIGH_STAFF}> Новый отчёт на баллы!`, embeds: [embed], components: [row] });
+    reportsChannel.send({ content: `<@&${config.ROLES.HIGH_STAFF}> Новый отчёт на баллы!`, embeds: [embed], components: [row] }).catch(() => {});
     return interaction.reply({ content: '✅ Твой отчёт отправлен High Staff на проверку!', ephemeral: true });
   }
 
   if (interaction.isButton() && (interaction.customId.startsWith('eco_approve_') || interaction.customId.startsWith('eco_reject_'))) {
-    if (!isHighStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Проверять отчёты на баллы может только High Staff!', ephemeral: true });
-    }
+    if (!isHighStaff(interaction.member)) return interaction.reply({ content: '❌ Проверять отчёты на баллы может только High Staff!', ephemeral: true });
 
     const parts = interaction.customId.split('_');
     const action = parts[1];
@@ -347,11 +245,7 @@ async function handleEconomy(interaction, client) {
         .addFields({ name: '👮 Проверил (High Staff)', value: `<@${interaction.user.id}> (Новый баланс: **${stats.points} б.**)`, inline: false });
 
       await interaction.update({ content: '', embeds: [approvedEmbed], components: [] });
-
-      const targetUser = await client.users.fetch(targetUserId).catch(() => null);
-      if (targetUser) {
-        await targetUser.send(`💎 Ваш отчёт одобрен High Staff! Начислено **+${pointsToAdd} баллов**. Ваш баланс: **${stats.points} б.**`).catch(() => {});
-      }
+      client.users.fetch(targetUserId).then(u => u.send(`💎 Ваш отчёт одобрен High Staff! Начислено **+${pointsToAdd} баллов**. Ваш баланс: **${stats.points} б.**`)).catch(() => {});
     }
 
     if (action === 'reject') {
@@ -364,7 +258,6 @@ async function handleEconomy(interaction, client) {
     }
   }
 
-   // ==================== МАГАЗИН НАГРАД ====================
   if (interaction.isStringSelectMenu() && interaction.customId === 'eco_shop_buy') {
     const itemKey = interaction.values[0];
     const item = SHOP_ITEMS[itemKey];
@@ -372,22 +265,13 @@ async function handleEconomy(interaction, client) {
     const stats = getUserStats(ecoData, interaction.user.id);
 
     if (stats.points < item.cost) {
-      return interaction.reply({
-        content: `❌ Недостаточно баллов! Нужно **${item.cost} б.**, а у тебя сейчас **${stats.points} б.**`,
-        ephemeral: true
-      });
+      return interaction.reply({ content: `❌ Недостаточно баллов! Нужно **${item.cost} б.**, а у тебя сейчас **${stats.points} б.**`, ephemeral: true });
     }
 
     if (itemKey === 'remove_warn') {
-      let warnsData = {};
-      if (fs.existsSync(WARNS_FILE)) {
-        try { warnsData = JSON.parse(fs.readFileSync(WARNS_FILE, 'utf8')); } catch {}
-      }
-
+      const warnsData = getJson('warns_data.json', {});
       const currentWarns = warnsData[interaction.user.id] || 0;
-      if (currentWarns <= 0) {
-        return interaction.reply({ content: '⚠️ У тебя нет активных выговоров, которые можно снять!', ephemeral: true });
-      }
+      if (currentWarns <= 0) return interaction.reply({ content: '⚠️ У тебя нет активных выговоров, которые можно снять!', ephemeral: true });
 
       stats.points -= item.cost;
       saveEconomy(ecoData);
@@ -395,14 +279,18 @@ async function handleEconomy(interaction, client) {
       const newWarns = currentWarns - 1;
       if (newWarns === 0) delete warnsData[interaction.user.id];
       else warnsData[interaction.user.id] = newWarns;
-      fs.writeFileSync(WARNS_FILE, JSON.stringify(warnsData, null, 2), 'utf8');
+      saveJson('warns_data.json', warnsData);
 
       if (newWarns === 0) {
-        await interaction.member.roles.remove(config.ROLES.WARN_1).catch(() => {});
-        await interaction.member.roles.remove(config.ROLES.WARN_2).catch(() => {});
+        await Promise.allSettled([
+          interaction.member.roles.remove(config.ROLES.WARN_1),
+          interaction.member.roles.remove(config.ROLES.WARN_2)
+        ]);
       } else if (newWarns === 1) {
-        await interaction.member.roles.remove(config.ROLES.WARN_2).catch(() => {});
-        await interaction.member.roles.add(config.ROLES.WARN_1).catch(() => {});
+        await Promise.allSettled([
+          interaction.member.roles.remove(config.ROLES.WARN_2),
+          interaction.member.roles.add(config.ROLES.WARN_1)
+        ]);
       }
 
       return interaction.reply({
@@ -411,10 +299,7 @@ async function handleEconomy(interaction, client) {
       });
     }
 
-    const modal = new ModalBuilder()
-      .setCustomId(`eco_buyform_${itemKey}`)
-      .setTitle(`Покупка: ${item.cost} баллов`);
-
+    const modal = new ModalBuilder().setCustomId(`eco_buyform_${itemKey}`).setTitle(`Покупка: ${item.cost} баллов`);
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
@@ -425,7 +310,6 @@ async function handleEconomy(interaction, client) {
           .setRequired(true)
       )
     );
-
     return interaction.showModal(modal);
   }
 
@@ -435,16 +319,11 @@ async function handleEconomy(interaction, client) {
     const details = interaction.fields.getTextInputValue('buy_details');
 
     const shopChannel = client.channels.cache.get(config.CHANNELS.SHOP_ORDERS);
-    if (!shopChannel) {
-      return interaction.reply({ content: '❌ Канал заказов магазина не настроен в `config.js` (`SHOP_ORDERS`).', ephemeral: true });
-    }
+    if (!shopChannel) return interaction.reply({ content: '❌ Канал заказов магазина не настроен в `config.js` (`SHOP_ORDERS`).', ephemeral: true });
 
     const ecoData = loadEconomy();
     const stats = getUserStats(ecoData, interaction.user.id);
-
-    if (stats.points < item.cost) {
-      return interaction.reply({ content: '❌ Недостаточно баллов для покупки.', ephemeral: true });
-    }
+    if (stats.points < item.cost) return interaction.reply({ content: '❌ Недостаточно баллов для покупки.', ephemeral: true });
 
     stats.points -= item.cost;
     saveEconomy(ecoData);
@@ -459,45 +338,27 @@ async function handleEconomy(interaction, client) {
       )
       .setTimestamp();
 
-    const btn = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`eco_orderdone_${interaction.user.id}`).setLabel('✅ Товар выдан').setStyle(ButtonStyle.Success)
-    );
+    const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`eco_orderdone_${interaction.user.id}`).setLabel('✅ Товар выдан').setStyle(ButtonStyle.Success));
+    shopChannel.send({ content: `<@&${config.ROLES.HIGH_STAFF}> Новая покупка в магазине!`, embeds: [orderEmbed], components: [btn] }).catch(() => {});
 
-    await shopChannel.send({ content: `<@&${config.ROLES.HIGH_STAFF}> Новая покупка в магазине!`, embeds: [orderEmbed], components: [btn] });
-
-    return interaction.reply({
-      content: `✅ Заказ на **${item.label}** оформлен! Списано **${item.cost} б.** (остаток: **${stats.points} б.**). Ожидайте выдачи.`,
-      ephemeral: true
-    });
+    return interaction.reply({ content: `✅ Заказ на **${item.label}** оформлен! Списано **${item.cost} б.** (остаток: **${stats.points} б.**). Ожидайте выдачи.`, ephemeral: true });
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('eco_orderdone_')) {
-    if (!isHighStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Отмечать выдачу товаров может только High Staff!', ephemeral: true });
-    }
-
+    if (!isHighStaff(interaction.member)) return interaction.reply({ content: '❌ Отмечать выдачу товаров может только High Staff!', ephemeral: true });
     const buyerId = interaction.customId.replace('eco_orderdone_', '');
-    const doneEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-      .setColor('#2ECC71')
-      .setTitle('✅ Заказ из магазина ВЫДАН')
-      .addFields({ name: '👮 Выдал товар', value: `<@${interaction.user.id}>`, inline: false });
+    const doneEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setColor('#2ECC71').setTitle('✅ Заказ из магазина ВЫДАН').addFields({ name: '👮 Выдал товар', value: `<@${interaction.user.id}>`, inline: false });
 
     await interaction.update({ content: '', embeds: [doneEmbed], components: [] });
-
-    const buyer = await client.users.fetch(buyerId).catch(() => null);
-    if (buyer) {
-      await buyer.send('🎁 Ваш заказ из семейного магазина был успешно выдан!').catch(() => {});
-    }
+    client.users.fetch(buyerId).then(b => b.send('🎁 Ваш заказ из семейного магазина был успешно выдан!')).catch(() => {});
   }
 
-  // ==================== ЗАЯВКИ НА ВЫПЛАТЫ ====================
   if (interaction.isButton() && interaction.customId === 'eco_request_payout') {
     const payCfg = ECO_CFG.PAYOUT_PANEL;
-    const modal = buildModalFromFields('eco_submit_payout', payCfg.payoutModal.title, payCfg.fields);
-    return interaction.showModal(modal);
+    return interaction.showModal(buildModalFromFields('eco_submit_payout', payCfg.payoutModal.title, payCfg.fields));
   }
 
-  if (interaction.isModalSubmit() && interaction.customId === 'eco_submit_payout') {
+    if (interaction.isModalSubmit() && interaction.customId === 'eco_submit_payout') {
     const payoutChannel = client.channels.cache.get(config.CHANNELS.PAYOUT_REQUESTS);
     if (!payoutChannel) {
       return interaction.reply({ content: '❌ Канал выплат не настроен в `config.js` (`PAYOUT_REQUESTS`).', ephemeral: true });
@@ -524,7 +385,12 @@ async function handleEconomy(interaction, client) {
       new ButtonBuilder().setCustomId(`eco_paydeny_${interaction.user.id}`).setLabel('❌ Отклонить').setStyle(ButtonStyle.Danger)
     );
 
-    await payoutChannel.send({ content: `<@&${config.ROLES.HIGH_STAFF}> Новая заявка на выплату!`, embeds: [payEmbed], components: [row] });
+    payoutChannel.send({
+      content: `<@&${config.ROLES.HIGH_STAFF}> Новая заявка на выплату!`,
+      embeds: [payEmbed],
+      components: [row]
+    }).catch(() => {});
+
     return interaction.reply({ content: '✅ Твоя заявка на выплату успешно отправлена!', ephemeral: true });
   }
 
@@ -548,14 +414,13 @@ async function handleEconomy(interaction, client) {
 
     await interaction.update({ content: '', embeds: [updatedEmbed], components: [] });
 
-    const targetUser = await client.users.fetch(targetUserId).catch(() => null);
-    if (targetUser) {
-      await targetUser.send(
+    client.users.fetch(targetUserId)
+      .then(u => u.send(
         action === 'paydone'
           ? '💸 Ваша заявка на выплату одобрена и переведена на указанный счёт!'
           : '❌ Ваша заявка на выплату была отклонена старшим составом.'
-      ).catch(() => {});
-    }
+      ))
+      .catch(() => {});
   }
 }
 

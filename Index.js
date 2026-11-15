@@ -28,7 +28,6 @@ const {
   PermissionFlagsBits
 } = require('discord.js');
 
-// ================= ЗАЩИТА ОТ ПАДЕНИЙ (ANTI-CRASH) =================
 process.on('unhandledRejection', (reason) => {
   console.error('❌ [Anti-Crash] Необработанное отклонение промиса:', reason);
 });
@@ -51,22 +50,16 @@ const client = new Client({
   ]
 });
 
-// ================= КОМАНДА /ЭМБЕД =================
 const embedCommand = new SlashCommandBuilder()
   .setName('эмбед')
   .setDescription('Отправить красивое Embed-сообщение от имени бота')
   .addStringOption(opt => opt.setName('заголовок').setDescription('Заголовок сообщения').setRequired(true))
   .addStringOption(opt => opt.setName('текст').setDescription('Основной текст (используй \\n для переноса)').setRequired(true))
-  .addStringOption(opt =>
-    opt.setName('цвет')
-      .setDescription('Выбери цвет полоски слева или введи HEX (#FF0000)')
-      .setRequired(false)
-  )
+  .addStringOption(opt => opt.setName('цвет').setDescription('Выбери цвет полоски слева или введи HEX (#FF0000)').setRequired(false))
   .addStringOption(opt => opt.setName('картинка').setDescription('Прямая ссылка на картинку').setRequired(false))
   .addChannelOption(opt => opt.setName('канал').setDescription('В какой канал отправить').setRequired(false))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages);
 
-// ================= УМНЫЙ МАРШРУТИЗАТОР СОБЫТИЙ =================
 client.on('interactionCreate', async interaction => {
   try {
     if (interaction.isChatInputCommand()) {
@@ -82,11 +75,7 @@ client.on('interactionCreate', async interaction => {
         const imageUrl = interaction.options.getString('картинка');
         const targetChannel = interaction.options.getChannel('канал') || interaction.channel;
 
-        const embed = new EmbedBuilder()
-          .setTitle(title)
-          .setDescription(description)
-          .setColor(color)
-          .setTimestamp();
+        const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
 
         if (imageUrl) {
           if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
@@ -104,34 +93,22 @@ client.on('interactionCreate', async interaction => {
       if (cmd === 'панель_портфеля') return await handlePortfolio(interaction);
       if (cmd === 'панель_афк') return await handleAfk(interaction, client);
       if (cmd === 'панель_сборов') return await handleEvents(interaction, client);
-      if (['панель_информация', 'панель_выговоров', 'выговор', 'снять_выговор'].includes(cmd)) {
-        return await handleWarns(interaction, client);
-      }
-      if (['панель_баллов', 'панель_магазина', 'панель_выплат', 'топ_баллов', 'выдать_баллы'].includes(cmd)) {
-        return await handleEconomy(interaction, client);
-      }
-      if (['панель_рекрутинга', 'панель_тира', 'панель_должностей', 'рейтинг'].includes(cmd)) {
-        return await handleRecruit(interaction, client);
-      }
-      if (['профиль', 'панель_розыгрышей', 'розыгрыш', 'панель_скупки', 'панель_контрактов'].includes(cmd)) {
-        return await handleExtra(interaction, client);
-      }
+      if (['панель_информация', 'панель_выговоров', 'выговор', 'снять_выговор'].includes(cmd)) return await handleWarns(interaction, client);
+      if (['панель_баллов', 'панель_магазина', 'панель_выплат', 'топ_баллов', 'выдать_баллы'].includes(cmd)) return await handleEconomy(interaction, client);
+      if (['панель_рекрутинга', 'панель_тира', 'панель_должностей', 'рейтинг'].includes(cmd)) return await handleRecruit(interaction, client);
+      if (['профиль', 'панель_розыгрышей', 'розыгрыш', 'панель_скупки', 'панель_контрактов'].includes(cmd)) return await handleExtra(interaction, client);
       if (cmd === 'админ_панель' && handleAdmin) return await handleAdmin(interaction, client);
       if (cmd === 'панель_правил') return await handleRules(interaction);
       if (cmd === 'панель_связи') return await handleFeedback(interaction, client);
     }
 
-        if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
+    if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
       const id = interaction.customId;
 
-      // Сначала проверяем админ-панель, чтобы слова warn/afk/vacation/portfolio в ap_ не перехватывались другими модулями!
       if (id.startsWith('ap_') && handleAdmin) return await handleAdmin(interaction, client);
-
       if (id.includes('promo') || id.startsWith('modal_reject_')) return await handlePromo(interaction, client);
       if (id.includes('portfolio')) return await handlePortfolio(interaction);
-      if (id.includes('afk') || id.includes('vacation') || id === 'btn_return_active') {
-        return await handleAfk(interaction, client);
-      }
+      if (id.includes('afk') || id.includes('vacation') || id === 'btn_return_active') return await handleAfk(interaction, client);
       if (id.includes('warn')) return await handleWarns(interaction, client);
       if (id.startsWith('evt_')) return await handleEvents(interaction, client);
       if (id.startsWith('eco_')) return await handleEconomy(interaction, client);
@@ -148,28 +125,22 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ================= ЗАПУСК БОТА =================
-client.once('clientReady', () => {
+client.once('clientReady', async () => {
+  const guild = client.guilds.cache.get(config.GUILD_ID);
+  if (guild) {
+    await guild.members.fetch().catch(console.error);
+  }
   setupLogs(client);
   startVoicePointsTracker(client);
-  console.log(`✅ Бот ${client.user.tag} успешно запущен и защищён!`);
+  console.log(`✅ Бот ${client.user.tag} успешно запущен и оптимизирован!`);
 });
 
 (async () => {
   try {
     const rawCommands = [
-      embedCommand,
-      promoCommand,
-      portfolioCommand,
-      afkCommand,
-      eventCommand,
-      adminCommand,
-      rulesCommand,
-      feedbackCommand,
-      ...(warnCommands || []),
-      ...(economyCommands || []),
-      ...(recruitCommands || []),
-      ...(extraCommands || [])
+      embedCommand, promoCommand, portfolioCommand, afkCommand, eventCommand,
+      adminCommand, rulesCommand, feedbackCommand,
+      ...(warnCommands || []), ...(economyCommands || []), ...(recruitCommands || []), ...(extraCommands || [])
     ].filter(cmd => cmd && typeof cmd.toJSON === 'function');
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);

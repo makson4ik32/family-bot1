@@ -1,17 +1,10 @@
-const fs = require('fs');
-const path = require('path');
 const config = require('./config');
-
-const CUSTOM_PANELS_FILE = path.join(__dirname, 'panels_custom.json');
+const { getJson } = require('./db');
 
 function loadCustomPanels() {
-  if (!fs.existsSync(CUSTOM_PANELS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(CUSTOM_PANELS_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
+  return getJson('panels_custom.json', {});
 }
+
 
 // =========================================================================
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ОФОРМЛЕНИЯ
