@@ -1,692 +1,335 @@
 const config = require('./config');
 const settings = require('./settings');
-const fs = require('fs');
-const path = require('path');
-const { publishPanelToChannel } = require('./panel_manager');
-const { moveToFreeInterviewChannel } = require('./automation');
+const { getJson, saveJson } = require('./db');
+const { getMergedPanelConfig, saveCustomPanels, getCustomPanels } = require('./panel_manager');
 
 const {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   PermissionFlagsBits
 } = require('discord.js');
 
-const STATS_FILE = path.join(__dirname, 'staff_rating.json');
-const USERS_FILE = path.join(__dirname, 'users_profiles.json');
-
-function loadJson(file) {
-  if (!fs.existsSync(file)) return {};
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return {}; }
-}
-
-function saveJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function addStaffRating(userId, field) {
-  const data = loadJson(STATS_FILE);
-  if (!data[userId]) data[userId] = { accepted: 0, declined: 0, gathers: 0, tierChecks: 0 };
-  data[userId][field] = (data[userId][field] || 0) + 1;
-  saveJson(STATS_FILE, data);
-}
-
-function canRecruit(member) {
+function canHandleRecruit(member) {
+  if (!member) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  const roles = settings.CALLERS?.RECRUIT_CALLER_ROLES || [config.ROLES.RECRUIT, config.ROLES.HIGH_STAFF];
-  return roles.filter(Boolean).some(r => member.roles.cache.has(r));
+  if (Array.isArray(config.OWNER_IDS) && config.OWNER_IDS.includes(member.id)) return true;
+
+  const allowed = [
+    ...(settings.CALLERS.RECRUIT_CALLER_ROLES || []),
+    config.ROLES.HIGH_STAFF,
+    config.ROLES.DEP_LEADER,
+    config.ROLES.LEADER
+  ].filter(Boolean);
+
+  return allowed.some(r => member.roles.cache.has(r));
 }
 
-function canReviewStaff(member) {
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  const roles = settings.CALLERS?.STAFF_CALLER_ROLES || [config.ROLES.HIGH_STAFF];
-  return roles.filter(Boolean).some(r => member.roles.cache.has(r));
+function addRecruitStat(userId, field) {
+  const stats = getJson('staff_rating.json', {});
+  if (!stats[userId]) stats[userId] = { accepted: 0, declined: 0, tierChecks: 0 };
+  stats[userId][field] = (stats[userId][field] || 0) + 1;
+  saveJson('staff_rating.json', stats);
 }
 
-function formatPingRoles(roleIds) {
-  return (roleIds || []).filter(Boolean).map(r => `<@&${r}>`).join(' ');
-}
-
-function setRecruiterField(embedBuilder, name, value) {
-  const fields = [...(embedBuilder.data.fields || [])];
-  const idx = fields.findIndex(f =>
-    f.name.includes('На рассмотрении') ||
-    f.name.includes('Обзвонник') ||
-    f.name.includes('Принял') ||
-    f.name.includes('Отклонил') ||
-    f.name.includes('Решение руководства')
-  );
-  if (idx !== -1) {
-    fields[idx] = { name, value, inline: false };
-  } else {
-    fields.push({ name, value, inline: false });
-  }
-  embedBuilder.setFields(fields);
-  return embedBuilder;
-}
-
-function buildModalFromFields(customId, title, fieldsList) {
-  const modal = new ModalBuilder().setCustomId(customId).setTitle(title.slice(0, 45));
-  const rows = (fieldsList || []).slice(0, 5).map(f =>
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId(f.id)
-        .setLabel(f.label.slice(0, 45))
-        .setPlaceholder((f.placeholder || '').slice(0, 100))
-        .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
-        .setRequired(f.required !== false)
-    )
-  );
-  return modal.addComponents(...rows);
-}
-
-function getStaffRoleConfig(appKey) {
-  const [baseKey, deptKey] = appKey.split(':');
-  const baseCfg = settings.ROLE_REWARDS.STAFF_APPS[baseKey];
-  if (!baseCfg) return { label: appKey, isMainOrRecruit: false };
-
-  if (deptKey && baseCfg.departments && baseCfg.departments[deptKey]) {
-    return {
-      label: baseCfg.departments[deptKey].label,
-      isMainOrRecruit: baseCfg.isMainOrRecruit
-    };
-  }
-
-  return {
-    label: baseCfg.label,
-    isMainOrRecruit: baseCfg.isMainOrRecruit
-  };
-}
-
-const recruitCommands = [
-  new SlashCommandBuilder()
-    .setName('панель_рекрутинга')
-    .setDescription('Отправить панель подачи заявки в семью (Capt / RP)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder()
-    .setName('панель_тира')
-    .setDescription('Отправить панель получения Tier-роли (создание приватного канала)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder()
-    .setName('панель_должностей')
-    .setDescription('Отправить панель заявок на ранги и должности')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  new SlashCommandBuilder()
-    .setName('рейтинг')
-    .setDescription('Посмотреть рейтинг рекрутов и стаффа')
-];
+const recruitCommand = new SlashCommandBuilder()
+  .setName('панель_рекрутинга')
+  .setDescription('Отправить панель набора в семью')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages);
 
 async function handleRecruit(interaction, client) {
-  const recTxt = settings.PANELS.RECRUIT;
-  const appTxt = settings.PANELS.STAFF_APPS;
-  const tierTxt = settings.PANELS.TIER;
-  const callersCfg = settings.CALLERS || {};
+  if (interaction.isChatInputCommand() && interaction.commandName === 'панель_рекрутинга') {
+    const cfg = getMergedPanelConfig('RECRUIT');
+    const embed = settings.applyPanelStyle(new EmbedBuilder(), { ...cfg, _panelKey: 'RECRUIT' }, '#002fff');
 
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'панель_рекрутинга') {
-      const res = await publishPanelToChannel(interaction.guild, 'RECRUIT', interaction.channel.id);
-      return interaction.reply({ content: res.ok ? '✅ Панель рекрутинга создана!' : `❌ ${res.error}`, ephemeral: true });
-    }
+    const row = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('recruit_select_branch')
+        .setPlaceholder(cfg.placeholder || '👇 Выбери направление для вступления...')
+        .addOptions([
+          { label: cfg.options?.captLabel || '⚔️ Capt Состав', description: cfg.options?.captDesc || 'Капты и турниры', value: 'Capt' },
+          { label: cfg.options?.rpLabel || '🎭 RP Состав', description: cfg.options?.rpDesc || 'RP контент и развитие', value: 'RP' }
+        ])
+    );
 
-    if (interaction.commandName === 'панель_тира') {
-      const res = await publishPanelToChannel(interaction.guild, 'TIER', interaction.channel.id);
-      return interaction.reply({ content: res.ok ? '✅ Панель тиров создана!' : `❌ ${res.error}`, ephemeral: true });
-    }
+    const sent = await interaction.channel.send({ embeds: [embed], components: [row] });
+    const customAll = getCustomPanels();
+    customAll.RECRUIT = { ...(customAll.RECRUIT || {}), channelId: interaction.channel.id, messageId: sent.id };
+    saveCustomPanels(customAll);
 
-    if (interaction.commandName === 'панель_должностей') {
-      const res = await publishPanelToChannel(interaction.guild, 'STAFF_APPS', interaction.channel.id);
-      return interaction.reply({ content: res.ok ? '✅ Панель заявок создана!' : `❌ ${res.error}`, ephemeral: true });
-    }
-
-    if (interaction.commandName === 'рейтинг') {
-      const stats = loadJson(STATS_FILE);
-      const sorted = Object.entries(stats)
-        .sort((a, b) => (b[1].accepted + b[1].tierChecks) - (a[1].accepted + a[1].tierChecks))
-        .slice(0, 15);
-
-      const desc = sorted.length > 0
-        ? sorted.map(([id, s], i) => `**${i + 1}.** <@${id}> — Принято: **${s.accepted}** | Отказов: **${s.declined}** | Тир-проверок: **${s.tierChecks}**`).join('\n')
-        : '*Статистика пока пуста.*';
-
-      const embed = new EmbedBuilder()
-        .setTitle('📊 Рейтинг работы Рекрутов и Проверяющих')
-        .setDescription(desc)
-        .setColor('#F1C40F');
-      return interaction.reply({ embeds: [embed] });
-    }
+    return interaction.reply({ content: '✅ Панель рекрутинга опубликована!', ephemeral: true });
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_branch') {
-    const adminFile = path.join(__dirname, 'admin_data.json');
-    const adminData = loadJson(adminFile);
+  // Выбор направления (Capt / RP) + проверка статусов набора и ЧС
+  if (interaction.isStringSelectMenu() && interaction.customId === 'recruit_select_branch') {
+    const branch = interaction.values.at(0);
+    const adminData = getJson('admin_data.json', { recruitOpen: true, captOpen: true, rpOpen: true, blacklist: [] });
+
+    if (Array.isArray(adminData.blacklist) && adminData.blacklist.some(b => b.userId === interaction.user.id)) {
+      return interaction.reply({ content: '⛔ Вы находитесь в чёрном списке семьи и не можете подать заявку.', ephemeral: true });
+    }
 
     if (adminData.recruitOpen === false) {
-      return interaction.reply({
-        content: '🔴 **Набор в семью сейчас закрыт!** Следите за новостями в каналах сервера.',
-        ephemeral: true
-      });
+      return interaction.reply({ content: '🔴 Набор в семью сейчас временно закрыт.', ephemeral: true });
+    }
+    if (branch === 'Capt' && adminData.captOpen === false) {
+      return interaction.reply({ content: '🔴 Набор в **Capt-состав** сейчас временно закрыт.', ephemeral: true });
+    }
+    if (branch === 'RP' && adminData.rpOpen === false) {
+      return interaction.reply({ content: '🔴 Набор в **RP-состав** сейчас временно закрыт.', ephemeral: true });
     }
 
-    const blacklist = Array.isArray(adminData.blacklist) ? adminData.blacklist : [];
-    const bannedEntry = blacklist.find(b => b.userId === interaction.user.id);
-    if (bannedEntry) {
-      return interaction.reply({
-        content: `⛔ **Вы находитесь в чёрном списке семьи!**\n**Причина:** ${bannedEntry.reason || 'Не указана'}`,
-        ephemeral: true
-      });
-    }
-
-    const branch = interaction.values.at(0);
-    const modal = buildModalFromFields(
-      `rec_modal_join_${branch}`,
-      `${recTxt.modalTitlePrefix} (${branch})`,
-      recTxt.fields
-    );
-    return interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_modal_join_')) {
-    const branch = interaction.customId.replace('rec_modal_join_', '');
-    const queueCh = client.channels.cache.get(config.CHANNELS.RECRUIT_QUEUE);
-    if (!queueCh) {
-      return interaction.reply({ content: '❌ Канал рекрутинга не настроен в config.js', ephemeral: true });
-    }
-
-    const answerFields = (recTxt.fields || []).map(f => ({
-      name: f.label,
-      value: interaction.fields.getTextInputValue(f.id) || 'Не указано',
-      inline: false
-    }));
-
-    const embed = new EmbedBuilder()
-      .setTitle(`📩 Новая заявка | Ветка: ${branch}`)
-      .setColor(settings.resolveColor(recTxt.color, branch === 'Capt' ? '#E74C3C' : '#3498DB'))
-      .setThumbnail(interaction.user.displayAvatarURL())
-      .addFields(
-        { name: '👤 Кандидат', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
-        ...answerFields
-      )
-      .setTimestamp();
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rec_review_${interaction.user.id}`).setLabel('👀 Взять на рассмотрение').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`rec_take_${interaction.user.id}`).setLabel('📞 Вызвать на обзвон').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`rec_ok_${interaction.user.id}_${branch}`).setLabel('✅ Принять').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rec_no_${interaction.user.id}`).setLabel('❌ Отклонить').setStyle(ButtonStyle.Danger)
-    );
-
-    const pingText = formatPingRoles(callersCfg.RECRUIT_PING_ROLES || [config.ROLES.RECRUIT]);
-    await queueCh.send({ content: pingText || undefined, embeds: [embed], components: [row] });
-    return interaction.reply({ content: recTxt.replySent, ephemeral: true });
-  }
-  if (interaction.isButton() && interaction.customId.startsWith('rec_review_')) {
-    if (!canRecruit(interaction.member)) {
-      return interaction.reply({ content: '❌ Брать заявки на рассмотрение могут только назначенные обзвонники!', ephemeral: true });
-    }
-
-    const candidateId = interaction.customId.replace('rec_review_', '');
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#F39C12');
-    setRecruiterField(updatedEmbed, '🎙 Обзвонник (на рассмотрении)', `<@${interaction.user.id}>`);
-
-    const updatedRow = ActionRowBuilder.from(interaction.message.components.at(0));
-    updatedRow.components.at(0).setDisabled(true).setLabel('👀 На рассмотрении');
-
-    await interaction.update({ embeds: [updatedEmbed], components: [updatedRow] });
-
-    const candidate = await client.users.fetch(candidateId).catch(() => null);
-    if (candidate) {
-      await candidate.send(
-        `👀 Ваша заявка на вступление в семью **${interaction.guild.name}** взята на рассмотрение обзвонником **${interaction.user.tag}** (<@${interaction.user.id}>).`
-      ).catch(() => {});
-    }
-
-    return interaction.followUp({ content: callersCfg.CHECKLIST || '📋 Заявка взята на рассмотрение.', ephemeral: true });
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('rec_take_')) {
-    if (!canRecruit(interaction.member)) {
-      return interaction.reply({ content: '❌ Вызывать на обзвон могут только назначенные обзвонники!', ephemeral: true });
-    }
-
-    const candidateId = interaction.customId.replace('rec_take_', '');
-    const voiceId = callersCfg.WAITING_VOICE_ID || config.CHANNELS.WAITING_VOICE;
-
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#3498DB');
-    setRecruiterField(updatedEmbed, '🎙 Обзвонник (вызван на обзвон)', `<@${interaction.user.id}>`);
-    await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
-
-    const movedChannel = await moveToFreeInterviewChannel(interaction.guild, interaction.member, candidateId);
-    const targetVoiceMention = movedChannel ? `<#${movedChannel.id}>` : `<#${voiceId}>`;
-
-    const chText = (callersCfg.RECRUIT_CALL_CHANNEL_MSG || '📞 Обзвонник {caller} вызвал кандидата {candidate} на обзвон в {voice}!')
-      .replace('{caller}', `<@${interaction.user.id}>`)
-      .replace('{candidate}', `<@${candidateId}>`)
-      .replace('{voice}', targetVoiceMention);
-
-    const dmText = (callersCfg.RECRUIT_CALL_DM_MSG || '📞 Обзвонник **{caller}** вызывает вас на обзвон в семью **{guild}**!\nЗайдите в голосовой канал ожидания: {voice}')
-      .replace('{caller}', interaction.user.tag)
-      .replace('{guild}', interaction.guild.name)
-      .replace('{voice}', targetVoiceMention);
-
-    const autoMoveNote = movedChannel
-      ? `\n🔊 **Вы и кандидат автоматически переведены в канал ${movedChannel.name}!**`
-      : '';
-
-    await interaction.reply({ content: `${callersCfg.CHECKLIST || '📞 Кандидат вызван на обзвон.'}${autoMoveNote}`, ephemeral: true });
-    await interaction.channel.send(chText);
-
-    const candidate = await client.users.fetch(candidateId).catch(() => null);
-    if (candidate) {
-      await candidate.send(dmText).catch(() => {});
-    }
-    return;
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('rec_ok_')) {
-    if (!canRecruit(interaction.member)) {
-      return interaction.reply({ content: '❌ Принимать заявки могут только назначенные обзвонники!', ephemeral: true });
-    }
-    const parts = interaction.customId.split('_');
-    const candidateId = parts.at(2);
-    const branch = parts.at(3);
-
-    const fields = interaction.message.embeds.at(0)?.fields || [];
-    const nickVal = fields.at(1)?.value || '';
-    const staticVal = fields.at(2)?.value || '';
-    const defaultNick = nickVal ? `${nickVal} | #${staticVal.replace(/#/g, '')}` : 'Nick_Name | #00000';
-
+    const cfg = getMergedPanelConfig('RECRUIT');
     const modal = new ModalBuilder()
-      .setCustomId(`rec_finalok_${candidateId}_${branch}`)
-      .setTitle('Принятие и ник по форме');
+      .setCustomId(`recruit_modal_${branch}`)
+      .setTitle(`${cfg.modalTitlePrefix || 'Заявка в семью'} (${branch})`.slice(0, 45));
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('final_nick')
-          .setLabel('Ник на сервере (по форме)')
-          .setValue(defaultNick.slice(0, 32))
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-      )
-    );
-    return interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_finalok_')) {
-    const parts = interaction.customId.split('_');
-    const candidateId = parts.at(2);
-    const branch = parts.at(3);
-    const finalNick = interaction.fields.getTextInputValue('final_nick');
-
-    const rolesCfg = settings.getJoinRoles(branch);
-    const rolesToAdd = rolesCfg.add;
-    const rolesToRemove = rolesCfg.remove;
-
-    const member = await interaction.guild.members.fetch(candidateId).catch(() => null);
-    if (member) {
-      await member.setNickname(finalNick).catch(() => {});
-      if (rolesToRemove && rolesToRemove.length > 0) {
-        await member.roles.remove(rolesToRemove.filter(Boolean)).catch(() => {});
-      }
-      if (rolesToAdd && rolesToAdd.length > 0) {
-        await member.roles.add(rolesToAdd.filter(Boolean)).catch(() => {});
-      }
-    }
-
-    const profiles = loadJson(USERS_FILE);
-    profiles[candidateId] = {
-      nick: finalNick,
-      branch,
-      joinedAt: Date.now(),
-      acceptedBy: `<@${interaction.user.id}>`
-    };
-    saveJson(USERS_FILE, profiles);
-    addStaffRating(interaction.user.id, 'accepted');
-
-    const resCh = client.channels.cache.get(config.CHANNELS.RECRUIT_RESULTS);
-    if (resCh) {
-      const resEmbed = new EmbedBuilder()
-        .setTitle('✅ Заявка в семью ПРИНЯТА')
-        .setColor('#2ECC71')
-        .setDescription(
-          `**Игрок:** <@${candidateId}>\n` +
-          `**Ник по форме:** \`${finalNick}\`\n` +
-          `**Состав:** ${branch}\n` +
-          `**Принял:** <@${interaction.user.id}>`
+    const fields = cfg.fields || settings.PANELS.RECRUIT.fields;
+    for (const f of fields.slice(0, 5)) {
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId(f.id)
+            .setLabel(f.label.slice(0, 45))
+            .setPlaceholder((f.placeholder || '').slice(0, 100))
+            .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+            .setRequired(Boolean(f.required))
         )
-        .setTimestamp();
-      await resCh.send({ content: `<@${candidateId}>`, embeds: [resEmbed] });
-    }
-
-    const doneEmbed = EmbedBuilder.from(interaction.message.embeds.at(0))
-      .setColor('#2ECC71')
-      .setTitle('✅ Заявка ОДОБРЕНА');
-    setRecruiterField(doneEmbed, '👮 Принял (Обзвонник)', `<@${interaction.user.id}> (\`${finalNick}\`)`);
-
-    return interaction.update({ content: '', embeds: [doneEmbed], components: [] });
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('rec_no_')) {
-    if (!canRecruit(interaction.member)) {
-      return interaction.reply({ content: '❌ Отклонять заявки могут только назначенные обзвонники!', ephemeral: true });
-    }
-    const candidateId = interaction.customId.replace('rec_no_', '');
-    const modal = new ModalBuilder()
-      .setCustomId(`rec_finalno_${candidateId}_${interaction.message.id}`)
-      .setTitle('Причина отклонения заявки');
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('no_reason')
-          .setLabel('Укажите причину отказа')
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-      )
-    );
-    return interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_finalno_')) {
-    const parts = interaction.customId.split('_');
-    const candidateId = parts.at(2);
-    const msgId = parts.at(3);
-    const reason = interaction.fields.getTextInputValue('no_reason');
-
-    addStaffRating(interaction.user.id, 'declined');
-
-    const resCh = client.channels.cache.get(config.CHANNELS.RECRUIT_RESULTS);
-    if (resCh) {
-      const resEmbed = new EmbedBuilder()
-        .setTitle('❌ Заявка в семью ОТКЛОНЕНА')
-        .setColor('#E74C3C')
-        .setDescription(
-          `**Кандидат:** <@${candidateId}>\n` +
-          `**Причина отказа:** ${reason}\n` +
-          `**Проверил:** <@${interaction.user.id}>`
-        )
-        .setTimestamp();
-      await resCh.send({ content: `<@${candidateId}>`, embeds: [resEmbed] });
-    }
-
-    const origMsg = await interaction.channel.messages.fetch(msgId).catch(() => null);
-    if (origMsg && origMsg.embeds.length > 0) {
-      const rejEmbed = EmbedBuilder.from(origMsg.embeds.at(0))
-        .setColor('#E74C3C')
-        .setTitle('❌ Заявка ОТКЛОНЕНА')
-        .addFields({ name: '💬 Причина', value: reason, inline: false });
-      setRecruiterField(rejEmbed, '👮 Отклонил (Обзвонник)', `<@${interaction.user.id}>`);
-      await origMsg.edit({ content: '', embeds: [rejEmbed], components: [] });
-    }
-
-    return interaction.reply({ content: '✅ Отказ опубликован в итогах заявок.', ephemeral: true });
-  }
-
-  // 3. TIER ПРОВЕРКА
-  if (interaction.isButton() && interaction.customId === 'rec_open_tier_ticket') {
-    const existingTicket = interaction.guild.channels.cache.find(
-      c => c.parentId === config.CHANNELS.TIER_CATEGORY &&
-           c.topic &&
-           c.topic.startsWith('Tier-проверка') &&
-           c.topic.includes(interaction.user.id)
-    );
-    if (existingTicket) {
-      return interaction.reply({ content: `⚠️ У тебя уже открыт канал проверки: ${existingTicket}`, ephemeral: true });
-    }
-
-    const ch = await interaction.guild.channels.create({
-      name: `тир-${interaction.user.username}`,
-      type: ChannelType.GuildText,
-      parent: config.CHANNELS.TIER_CATEGORY,
-      topic: `Tier-проверка участника ${interaction.user.tag} | ID: ${interaction.user.id}`,
-      permissionOverwrites: [
-        { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        {
-          id: interaction.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory]
-        },
-        {
-                    id: config.ROLES.TIER_CHECKER,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory]
-        },
-        {
-          id: interaction.client.user.id,
-          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory]
-        }
-      ]
-    });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rec_givetier_1_${interaction.user.id}`).setLabel('Выдать Tier 1').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rec_givetier_2_${interaction.user.id}`).setLabel('Выдать Tier 2').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rec_givetier_3_${interaction.user.id}`).setLabel('Выдать Tier 3').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('rec_close_tier').setLabel('🔒 Закрыть канал').setStyle(ButtonStyle.Danger)
-    );
-
-    await ch.send({
-      content: `<@${interaction.user.id}> | <@&${config.ROLES.TIER_CHECKER}>\n${tierTxt.ticketWelcome}`,
-      components: [row]
-    });
-
-    return interaction.reply({ content: `✅ Создан приватный канал для проверки: ${ch}`, ephemeral: true });
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('rec_givetier_')) {
-    if (!interaction.member.roles.cache.has(config.ROLES.TIER_CHECKER) && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: '❌ Выдавать Tier может только Tier Checker!', ephemeral: true });
-    }
-
-    const parts = interaction.customId.split('_');
-    const tierNum = parts.at(2);
-    const targetId = parts.at(3);
-    const roleMap = {
-      '1': config.ROLES.TIER_1,
-      '2': config.ROLES.TIER_2,
-      '3': config.ROLES.TIER_3
-    };
-
-    const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-    if (member) {
-      await member.roles.remove([config.ROLES.TIER_1, config.ROLES.TIER_2, config.ROLES.TIER_3].filter(Boolean)).catch(() => {});
-      if (roleMap[tierNum]) {
-        await member.roles.add(roleMap[tierNum]).catch(() => {});
-      }
-    }
-
-    addStaffRating(interaction.user.id, 'tierChecks');
-    return interaction.reply(`✅ Игроку <@${targetId}> выдана роль **Tier ${tierNum}** проверяющим <@${interaction.user.id}>!`);
-  }
-
-  if (interaction.isButton() && interaction.customId === 'rec_close_tier') {
-    if (!interaction.member.roles.cache.has(config.ROLES.TIER_CHECKER) && !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: '❌ Закрыть тикет может только Tier Checker или администратор!', ephemeral: true });
-    }
-    await interaction.reply('🔒 Канал проверки закроется и удалится через 5 секунд...');
-    setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
-  }
-
-  // 4. ЗАЯВКИ НА РАНГИ И ДОЛЖНОСТИ
-  if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_staff_role') {
-    const roleKey = interaction.values.at(0);
-    const baseCfg = settings.ROLE_REWARDS.STAFF_APPS[roleKey];
-
-    if (baseCfg && baseCfg.departments) {
-      const deptOptions = Object.entries(baseCfg.departments).map(([deptKey, deptInfo]) => ({
-        label: deptInfo.label,
-        description: (deptInfo.description || `Отдел ${deptKey}`).slice(0, 100),
-        value: `${roleKey}:${deptKey}`
-      }));
-
-      const deptRow = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('rec_select_staff_dept')
-          .setPlaceholder(`👇 Выбери отдел для ${baseCfg.label}...`)
-          .addOptions(deptOptions)
       );
-
-      return interaction.reply({
-        content: `Выберите конкретный отдел для должности **${baseCfg.label}**:`,
-        components: [deptRow],
-        ephemeral: true
-      });
     }
 
-    const roleInfo = getStaffRoleConfig(roleKey);
-    return interaction.showModal(
-      buildModalFromFields(`rec_staffapp_${roleKey}`, `${appTxt.modalTitlePrefix} ${roleInfo.label}`, appTxt.fields)
-    );
+    return interaction.showModal(modal);
   }
 
-  if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_staff_dept') {
-    const appKey = interaction.values.at(0);
-    const roleInfo = getStaffRoleConfig(appKey);
-    return interaction.showModal(
-      buildModalFromFields(`rec_staffapp_${appKey}`, `${appTxt.modalTitlePrefix} ${roleInfo.label}`, appTxt.fields)
-    );
-  }
+  // Отправка анкеты -> создание приватного канала заявки
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('recruit_modal_')) {
+    await interaction.deferReply({ ephemeral: true });
+    const branch = interaction.customId.replace('recruit_modal_', '');
+    const nick = interaction.fields.getTextInputValue('r_nick')?.trim() || 'Не указано';
+    const staticId = interaction.fields.getTextInputValue('r_static')?.trim() || 'Не указано';
+    const exp = interaction.fields.getTextInputValue('r_exp')?.trim() || 'Не указано';
 
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_staffapp_')) {
-    const appKey = interaction.customId.replace('rec_staffapp_', '');
-    const roleInfo = getStaffRoleConfig(appKey);
+    const catId = config.CHANNELS.RECRUIT_CATEGORY || config.CHANNELS.PORTFOLIO_CATEGORY;
+    const callerRoles = [
+      ...(settings.CALLERS.RECRUIT_CALLER_ROLES || []),
+      ...(settings.CALLERS.RECRUIT_PING_ROLES || []),
+      config.ROLES.HIGH_STAFF
+    ].filter(Boolean);
 
-    const targetLogId = roleInfo.isMainOrRecruit
-      ? (config.CHANNELS.MAIN_RECRUIT_APPS || config.CHANNELS.STAFF_APPS)
-      : config.CHANNELS.STAFF_APPS;
+    const uniqueStaffRoles = [...new Set(callerRoles)];
+    const overwrites = [
+      { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
+      { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] },
+      ...uniqueStaffRoles.map(roleId => ({
+        id: roleId,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+      }))
+    ];
 
-    const staffCh = client.channels.cache.get(targetLogId);
-    if (!staffCh) {
-      return interaction.reply({ content: '❌ Канал проверки заявок не настроен в `config.js`.', ephemeral: true });
+    const safeName = `заявка-${interaction.user.username.toLowerCase().replace(/[^a-z0-9а-яё]/gi, '') || interaction.user.id}`.slice(0, 30);
+    const ticketCh = await interaction.guild.channels.create({
+      name: safeName,
+      type: ChannelType.GuildText,
+      parent: catId || undefined,
+      topic: `Заявка в семью | Кандидат: ${interaction.user.id} | Направление: ${branch}`,
+      permissionOverwrites: overwrites
+    }).catch(() => null);
+
+    if (!ticketCh) {
+      return interaction.editReply({ content: '❌ Не удалось создать личный канал заявки. Обратитесь к старшему составу.' });
     }
 
-    const answerFields = (appTxt.fields || []).map(f => ({
-      name: f.label,
-      value: interaction.fields.getTextInputValue(f.id) || 'Не указано',
-      inline: false
-    }));
-
-    const embed = new EmbedBuilder()
-      .setTitle(`👔 Новая заявка: ${roleInfo.label}`)
-      .setColor(settings.resolveColor(appTxt.color, roleInfo.isMainOrRecruit ? '#3498DB' : '#9B59B6'))
+    const pingRoles = (settings.CALLERS.RECRUIT_PING_ROLES || []).map(id => `<@&${id}>`).join(' ');
+    const appEmbed = new EmbedBuilder()
+      .setTitle(`📋 Новая заявка в семью | ${branch}-состав`)
+      .setColor(branch === 'Capt' ? '#E74C3C' : '#3498DB')
       .setThumbnail(interaction.user.displayAvatarURL())
       .addFields(
-        { name: '👤 Кандидат', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false },
-        ...answerFields
+        { name: '👤 Кандидат', value: `<@${interaction.user.id}> (\`${interaction.user.tag}\`)`, inline: true },
+        { name: '🎯 Направление', value: `**${branch}**`, inline: true },
+        { name: '🪪 Ник и Возраст', value: nick, inline: false },
+        { name: '🔢 Статик и онлайн', value: staticId, inline: false },
+        { name: '🎥 Опыт и откаты', value: exp.slice(0, 1024), inline: false }
       )
       .setTimestamp();
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rec_staffreview_${interaction.user.id}_${appKey}`).setLabel('👀 Взять на рассмотрение').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`rec_staffcall_${interaction.user.id}_${appKey}`).setLabel('📞 Вызвать на обзвон').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`rec_staffpass_${interaction.user.id}_${appKey}`).setLabel('✅ Одобрить').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rec_stafffail_${interaction.user.id}_${appKey}`).setLabel('❌ Отказать').setStyle(ButtonStyle.Danger)
+    const controls = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`rec_call_${interaction.user.id}_${branch}`).setLabel('📞 Вызвать на обзвон').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`rec_accept_${interaction.user.id}_${branch}`).setLabel('✅ Принять в семью').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`rec_decline_${interaction.user.id}_${branch}`).setLabel('❌ Отклонить').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('rec_close_ticket').setLabel('🔒 Закрыть канал').setStyle(ButtonStyle.Secondary)
     );
 
-    const pingText = formatPingRoles(callersCfg.STAFF_PING_ROLES || [config.ROLES.HIGH_STAFF]);
-    await staffCh.send({ content: pingText || undefined, embeds: [embed], components: [row] });
-    return interaction.reply({ content: appTxt.replySent, ephemeral: true });
-  }
+    await ticketCh.send({
+      content: `${pingRoles} <@${interaction.user.id}> — ваша заявка принята в обработку!`,
+      embeds: [appEmbed],
+      components: [controls]
+    });
 
-  if (interaction.isButton() && interaction.customId.startsWith('rec_staffreview_')) {
-    if (!canReviewStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Брать заявки на рассмотрение могут только проверяющие из настроек!', ephemeral: true });
+    const cfg = getMergedPanelConfig('RECRUIT');
+    return interaction.editReply({
+      content: `${cfg.replySent || '✅ Заявка создана!'}\n👉 Ваш личный канал: ${ticketCh}`
+    });
+  }
+  // Кнопки управления заявкой (Вызвать на обзвон / Принять / Отклонить / Закрыть канал)
+  if (interaction.isButton() && interaction.customId.startsWith('rec_')) {
+    if (!canHandleRecruit(interaction.member)) {
+      return interaction.reply({ content: '❌ У вас нет прав для обработки заявок в семью!', ephemeral: true });
+    }
+
+    if (interaction.customId === 'rec_close_ticket') {
+      await interaction.reply({ content: '🔒 Канал заявки будет удалён через 5 секунд...' });
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
+      return;
     }
 
     const parts = interaction.customId.split('_');
-    const candidateId = parts.at(2);
-    const appKey = parts.slice(3).join('_');
-    const roleInfo = getStaffRoleConfig(appKey);
+    const action = parts[1];
+    const targetId = parts[2];
+    const branch = parts[3] || 'RP';
 
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#F39C12');
-    setRecruiterField(updatedEmbed, '👀 На рассмотрении', `Заявку взял(а) <@${interaction.user.id}>`);
+    if (action === 'call') {
+      const voiceLink = config.CHANNELS.WAITING_VOICE ? `<#${config.CHANNELS.WAITING_VOICE}>` : 'голосовой канал ожидания';
+      const chMsg = (settings.CALLERS.RECRUIT_CALL_CHANNEL_MSG || '📞 {caller} вызывает {candidate} на обзвон в {voice}!')
+        .replace('{caller}', `<@${interaction.user.id}>`)
+        .replace('{candidate}', `<@${targetId}>`)
+        .replace('{voice}', voiceLink);
 
-    const updatedRow = ActionRowBuilder.from(interaction.message.components.at(0));
-    updatedRow.components.at(0).setDisabled(true).setLabel('👀 На рассмотрении');
+      const dmMsg = (settings.CALLERS.RECRUIT_CALL_DM_MSG || '📞 Обзвонник **{caller}** вызывает вас на обзвон в **{guild}**! Зайдите в {voice}')
+        .replace('{caller}', interaction.member.displayName)
+        .replace('{guild}', interaction.guild.name)
+        .replace('{voice}', voiceLink);
 
-    await interaction.update({ embeds: [updatedEmbed], components: [updatedRow] });
+      const targetUser = await client.users.fetch(targetId).catch(() => null);
+      if (targetUser) await targetUser.send(dmMsg).catch(() => {});
 
-    const candidate = await client.users.fetch(candidateId).catch(() => null);
-    if (candidate) {
-      await candidate.send(
-        `👀 Ваша заявка на **${roleInfo.label}** взята на рассмотрение проверяющим **${interaction.user.tag}** (<@${interaction.user.id}>).`
-      ).catch(() => {});
-    }
-    return;
-  }
-
-  if (interaction.isButton() && interaction.customId.startsWith('rec_staffcall_')) {
-    if (!canReviewStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Вызывать на обзвон могут только проверяющие из настроек!', ephemeral: true });
+      return interaction.reply({ content: `${chMsg}\n\n${settings.CALLERS.CHECKLIST || ''}` });
     }
 
-    const parts = interaction.customId.split('_');
-    const candidateId = parts.at(2);
-    const appKey = parts.slice(3).join('_');
-    const roleInfo = getStaffRoleConfig(appKey);
-    const voiceId = callersCfg.WAITING_VOICE_ID || config.CHANNELS.WAITING_VOICE;
+    if (action === 'accept') {
+      const modal = new ModalBuilder()
+        .setCustomId(`rec_accmodal_${targetId}_${branch}`)
+        .setTitle('Одобрение заявки в семью');
 
-    const movedChannel = await moveToFreeInterviewChannel(interaction.guild, interaction.member, candidateId);
-    const targetVoiceMention = movedChannel ? `<#${movedChannel.id}>` : `<#${voiceId}>`;
-
-    const chText = (callersCfg.STAFF_CALL_CHANNEL_MSG || '📞 {caller} вызывает кандидата {candidate} на обзвон по заявке **{role}** в {voice}!')
-      .replace('{caller}', `<@${interaction.user.id}>`)
-      .replace('{candidate}', `<@${candidateId}>`)
-      .replace('{role}', roleInfo.label)
-      .replace('{voice}', targetVoiceMention);
-
-    const dmText = (callersCfg.STAFF_CALL_DM_MSG || '📞 Руководство **{caller}** вызывает вас на обзвон по заявке **{role}** в семье **{guild}**!\nЗайдите в голосовой канал: {voice}')
-      .replace('{caller}', interaction.user.tag)
-      .replace('{role}', roleInfo.label)
-      .replace('{guild}', interaction.guild.name)
-      .replace('{voice}', targetVoiceMention);
-
-    await interaction.reply(chText);
-
-    const candidate = await client.users.fetch(candidateId).catch(() => null);
-    if (candidate) {
-      await candidate.send(dmText).catch(() => {});
-    }
-    return;
-  }
-
-  if (interaction.isButton() && (interaction.customId.startsWith('rec_staffpass_') || interaction.customId.startsWith('rec_stafffail_'))) {
-    if (!canReviewStaff(interaction.member)) {
-      return interaction.reply({ content: '❌ Доступно только проверяющим из настроек!', ephemeral: true });
-    }
-
-        const parts = interaction.customId.split('_');
-    const actionType = parts.at(1);
-    const targetId = parts.at(2);
-    const appKey = parts.slice(3).join('_');
-    const passed = actionType === 'staffpass';
-    const roleInfo = getStaffRoleConfig(appKey);
-
-    const resChId = config.CHANNELS.STAFF_RESULTS || config.CHANNELS.RECRUIT_RESULTS;
-    const resCh = await client.channels.fetch(resChId).catch(() => null);
-    if (resCh) {
-      const resEmbed = new EmbedBuilder()
-        .setTitle(passed ? `🎉 Одобрена заявка: ${roleInfo.label}` : `❌ Отказ по заявке: ${roleInfo.label}`)
-        .setColor(passed ? '#2ECC71' : '#E74C3C')
-        .setDescription(
-          `**Кандидат:** <@${targetId}>\n` +
-          `**Итог:** ${passed ? 'Заявка одобрена! Для получения роли подайте отчёт в канале повышения.' : 'Отказано в повышении / назначении.'}\n` +
-          `**Проверил:** <@${interaction.user.id}>`
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('final_nick')
+            .setLabel('Ник по форме (Имя_Фамилия | #Статик)')
+            .setPlaceholder('Например: Ivan_Begov | #12345')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
         )
-        .setTimestamp();
-      await resCh.send({ content: `<@${targetId}>`, embeds: [resEmbed] });
+      );
+      return interaction.showModal(modal);
     }
 
-    const upd = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor(passed ? '#2ECC71' : '#E74C3C');
-    setRecruiterField(upd, '👮 Решение руководства', `${passed ? '✅ Одобрено (роль выдаётся по отчёту)' : '❌ Отказано'} — <@${interaction.user.id}>`);
+    if (action === 'decline') {
+      const modal = new ModalBuilder()
+        .setCustomId(`rec_decmodal_${targetId}_${branch}`)
+        .setTitle('Отклонение заявки');
 
-    return interaction.update({ content: '', embeds: [upd], components: [] });
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('dec_reason')
+            .setLabel('Причина отказа')
+            .setPlaceholder('Например: Слабые откаты / нет 16 лет')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+      return interaction.showModal(modal);
+    }
+  }
+
+  // Модалка принятия в семью
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_accmodal_')) {
+    const [, , targetId, branch] = interaction.customId.split('_');
+    const finalNick = interaction.fields.getTextInputValue('final_nick').trim();
+    const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+
+    if (member) {
+      const joinCfg = settings.getJoinRoles(branch);
+      if (Array.isArray(joinCfg.add) && joinCfg.add.length > 0) {
+        await member.roles.add(joinCfg.add).catch(() => {});
+      }
+      if (Array.isArray(joinCfg.remove) && joinCfg.remove.length > 0) {
+        await member.roles.remove(joinCfg.remove).catch(() => {});
+      }
+      await member.setNickname(finalNick).catch(() => {});
+      await member.send(`✅ Поздравляем! Ваша заявка в семью **${interaction.guild.name}** (${branch}) одобрена рекрутом **${interaction.member.displayName}**!`).catch(() => {});
+    }
+
+    addRecruitStat(interaction.user.id, 'accepted');
+
+    if (config.CHANNELS.RECRUIT_RESULTS) {
+      const resCh = interaction.guild.channels.cache.get(config.CHANNELS.RECRUIT_RESULTS);
+      if (resCh) {
+        const resEmbed = new EmbedBuilder()
+          .setTitle('✅ Заявка в семью одобрена')
+          .setColor('#2ECC71')
+          .setDescription(`**Кандидат:** <@${targetId}>\n**Направление:** ${branch}\n**Ник:** \`${finalNick}\`\n**Принял:** <@${interaction.user.id}>`)
+          .setTimestamp();
+        resCh.send({ content: `<@${targetId}>`, embeds: [resEmbed] }).catch(() => {});
+      }
+    }
+
+    const closeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('rec_close_ticket').setLabel('🔒 Закрыть канал заявки').setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.update({
+      content: `✅ Кандидат <@${targetId}> принят в **${branch}-состав** с ником \`${finalNick}\`!`,
+      components: [closeRow]
+    });
+  }
+
+  // Модалка отклонения заявки
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_decmodal_')) {
+    const [, , targetId, branch] = interaction.customId.split('_');
+    const reason = interaction.fields.getTextInputValue('dec_reason').trim();
+
+    const targetUser = await client.users.fetch(targetId).catch(() => null);
+    if (targetUser) {
+      await targetUser.send(`❌ Ваша заявка в семью **${interaction.guild.name}** (${branch}) отклонена.\n**Причина:** ${reason}`).catch(() => {});
+    }
+
+    addRecruitStat(interaction.user.id, 'declined');
+
+    if (config.CHANNELS.RECRUIT_RESULTS) {
+      const resCh = interaction.guild.channels.cache.get(config.CHANNELS.RECRUIT_RESULTS);
+      if (resCh) {
+        const resEmbed = new EmbedBuilder()
+          .setTitle('❌ Заявка в семью отклонена')
+          .setColor('#E74C3C')
+          .setDescription(`**Кандидат:** <@${targetId}>\n**Направление:** ${branch}\n**Причина:** ${reason}\n**Рассмотрел:** <@${interaction.user.id}>`)
+          .setTimestamp();
+        resCh.send({ content: `<@${targetId}>`, embeds: [resEmbed] }).catch(() => {});
+      }
+    }
+
+    const closeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('rec_close_ticket').setLabel('🔒 Закрыть канал заявки').setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.update({
+      content: `❌ Заявка кандидата <@${targetId}> отклонена. Причина: **${reason}**`,
+      components: [closeRow]
+    });
   }
 }
 
-module.exports = { recruitCommands, handleRecruit };
+module.exports = {
+  recruitCommand,
+  recruitCommands: [recruitCommand],
+  handleRecruit
+};

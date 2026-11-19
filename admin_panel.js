@@ -35,9 +35,8 @@ const FILES = {
   ECONOMY: 'economy_data.json',
   WARNS: 'warns_data.json',
   ADMIN: 'admin_data.json',
-  GIVEAWAYS: 'giveaways_data.json',
   STAFF_RATING: 'staff_rating.json',
-  CUSTOM_PANELS: 'panels_custom.json'
+  ACTIVITY: 'activity_data.json'
 };
 
 const EDITABLE_PANELS = {
@@ -70,7 +69,6 @@ function hasAdminAccess(member) {
 
   const allowed = [
     config.ROLES.HIGH_STAFF,
-    config.ROLES.DEP_CHIEF,
     config.ROLES.CALLER,
     config.ROLES.CHIEF_RECRUIT,
     config.ROLES.DEP_CHIEF_RECRUIT,
@@ -89,7 +87,6 @@ function getAllRankRoleIds() {
     config.ROLES.RANK_4_MAIN_PLUS,
     config.ROLES.RECRUIT,
     config.ROLES.RANK_6_HIGH,
-    config.ROLES.DEP_CHIEF,
     config.ROLES.DEP_CHIEF_RECRUIT,
     config.ROLES.CHIEF_RECRUIT,
     config.ROLES.CALLER,
@@ -109,7 +106,7 @@ function buildAdminPanelEmbed(guild) {
 function buildAdminPanelRows() {
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ap_manage_user').setLabel('👤 Управление игроком').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('ap_activity').setLabel('📊 Активность').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('ap_activity').setLabel('📊 Активность и неактив').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('ap_audit').setLabel('🔍 Аудит ролей и ников').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('ap_portfolios').setLabel('💼 Портфели').setStyle(ButtonStyle.Primary)
   );
@@ -126,21 +123,20 @@ function buildAdminPanelRows() {
     new ButtonBuilder().setCustomId('ap_rem_points').setLabel('📉 Снять баллы').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('ap_vacations').setLabel('📅 Отпуск участников').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ap_afk_stats').setLabel('💤 Статистика АФК').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ap_shop').setLabel('🛒 Магазин').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('ap_shop').setLabel('🛒 Магазин и баллы').setStyle(ButtonStyle.Secondary)
   );
 
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ap_recruit_ctl').setLabel('📋 Набор в семью').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('ap_recruit_stats').setLabel('🕵️ Актив рекрутов').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ap_staff_list').setLabel('👑 Состав стаффа').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ap_giveaway').setLabel('🎉 Розыгрыш').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('ap_backup').setLabel('💾 Бэкап баз').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('ap_staff_list').setLabel('👑 Состав стаффа').setStyle(ButtonStyle.Secondary)
   );
 
   const row5 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ap_edit_panel').setLabel('🎨 Оформление панелей').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('ap_roles_cfg').setLabel('🎭 Роли и обзвонники').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('ap_panels_hub').setLabel('🗂 Публикация / Удаление панелей').setStyle(ButtonStyle.Success)
+    new ButtonBuilder().setCustomId('ap_role_builder').setLabel('🛡 Конструктор ролей и каналов').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('ap_panels_hub').setLabel('🗂 Мастер панелей').setStyle(ButtonStyle.Success)
   );
 
   return [row1, row2, row3, row4, row5];
@@ -185,7 +181,6 @@ function sendAdminLog(guild, title, description, color = '#5865F2') {
 
   ch.send({ embeds: [embed] }).catch(() => {});
 }
-
 function buildPanelsHubEmbed() {
   const customAll = getCustomPanels();
   const lines = Object.entries(EDITABLE_PANELS)
@@ -246,7 +241,7 @@ async function handleAdmin(interaction, client) {
       embeds: [buildAdminPanelEmbed(interaction.guild)],
       components: buildAdminPanelRows()
     });
-        await msg.pin().catch(() => {});
+    await msg.pin().catch(() => {});
 
     const customAll = getCustomPanels();
     customAll.ADMIN_PANEL = { ...(customAll.ADMIN_PANEL || {}), channelId: interaction.channel.id, messageId: msg.id };
@@ -367,7 +362,6 @@ async function handleAdmin(interaction, client) {
       components: buildPanelsHubRows()
     });
   }
-
   // =========================================================================
   // 🎨 КОНСТРУКТОР ОФОРМЛЕНИЯ ВСЕХ ПАНЕЛЕЙ
   // =========================================================================
@@ -460,7 +454,7 @@ async function handleAdmin(interaction, client) {
     let thumbnail = '';
     if (footerRaw.includes('|')) {
       const parts = footerRaw.split('|');
-      footer = parts.trim();
+      footer = (parts[0] || '').trim();
       thumbnail = parts.slice(1).join('|').trim();
     }
 
@@ -494,7 +488,6 @@ async function handleAdmin(interaction, client) {
   }
 
   // =========================================================================
-    // =========================================================================
   // 🎭 НАСТРОЙКА РОЛЕЙ И ОБЗВОННИКОВ
   // =========================================================================
   if (interaction.isButton() && interaction.customId === 'ap_roles_cfg') {
@@ -556,7 +549,6 @@ async function handleAdmin(interaction, client) {
 
     return interaction.reply({ embeds: [embed], components: [select], ephemeral: true });
   }
-
   if (interaction.isStringSelectMenu() && interaction.customId === 'ap_role_pick_target') {
     const targetKey = interaction.values.at(0);
     const roleSelect = new ActionRowBuilder().addComponents(
@@ -603,7 +595,178 @@ async function handleAdmin(interaction, client) {
   }
 
   // =========================================================================
-  // 👤 УПРАВЛЕНИЕ ИГРОКОМ (РАНГ, TIER, НИК, ПОРТФЕЛЬ, КИК)
+  // 🛡 КОНСТРУКТОР РОЛЕЙ И ДОСТУПА К КАНАЛАМ
+  // =========================================================================
+  if (interaction.isButton() && interaction.customId === 'ap_role_builder') {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ap_rb_create_role').setLabel('➕ Создать новую роль').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap_rb_edit_perms').setLabel('👁 Настроить доступ к каналам').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ap_rb_create_ch').setLabel('📁 Создать канал').setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.reply({
+      content: '🛡 **Конструктор ролей и каналов сервера:**\nСоздавайте роли, настраивайте какие каналы/категории они видят и где могут писать.',
+      components: [row],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.isButton() && interaction.customId === 'ap_rb_create_role') {
+    const modal = new ModalBuilder()
+      .setCustomId('ap_modal_rb_createrole')
+      .setTitle('Создание новой роли');
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('r_name').setLabel('Название роли').setPlaceholder('Например: 4 | Main+').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('r_color').setLabel('HEX-цвет (например #3498DB)').setValue('#5865F2').setStyle(TextInputStyle.Short).setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('r_preset').setLabel('Шаблон прав (member / mod / high / admin)').setValue('member').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('r_hoist').setLabel('Показывать отдельно в списке? (Да / Нет)').setValue('Да').setStyle(TextInputStyle.Short).setRequired(true)
+      )
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === 'ap_modal_rb_createrole') {
+    const name = interaction.fields.getTextInputValue('r_name').trim();
+    const color = interaction.fields.getTextInputValue('r_color').trim() || '#5865F2';
+    const preset = interaction.fields.getTextInputValue('r_preset').trim().toLowerCase();
+    const hoist = ['да', 'yes', '+'].includes(interaction.fields.getTextInputValue('r_hoist').trim().toLowerCase());
+
+    const permMap = {
+      member: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
+      mod: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
+      high: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageNicknames, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
+      admin: [PermissionFlagsBits.Administrator]
+    };
+
+    try {
+      const createdRole = await interaction.guild.roles.create({
+        name,
+        color: settings.resolveColor(color, '#5865F2'),
+        hoist,
+        mentionable: true,
+        permissions: permMap[preset] || permMap.member,
+        reason: `Создано через админ-панель (${interaction.user.tag})`
+      });
+
+      const chSelect = new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(`ap_rb_setch_${createdRole.id}`)
+          .setPlaceholder('Выберите каналы/категории, которые видит эта роль (до 15)...')
+          .setMinValues(0)
+          .setMaxValues(15)
+      );
+
+      sendAdminLog(interaction.guild, '🛡 Создана роль через админ-панель', `Админ: <@${interaction.user.id}>\nРоль: <@&${createdRole.id}> (\`${name}\`)`, '#2ECC71');
+      return interaction.reply({
+        content: `✅ Роль <@&${createdRole.id}> создана! Теперь выберите каналы или категории, к которым ей нужно открыть доступ (или закройте меню):`,
+        components: [chSelect],
+        ephemeral: true
+      });
+    } catch (err) {
+      return interaction.reply({ content: '❌ Не удалось создать роль. Проверьте права бота («Управлять ролями»).', ephemeral: true });
+    }
+  }
+
+  if (interaction.isButton() && interaction.customId === 'ap_rb_edit_perms') {
+    const roleSelect = new ActionRowBuilder().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId('ap_rb_pick_role_perms')
+        .setPlaceholder('Выберите роль для настройки видимости каналов...')
+    );
+    return interaction.reply({ content: '🎭 Выберите роль, которой нужно настроить доступ к каналам:', components: [roleSelect], ephemeral: true });
+  }
+
+  if (interaction.isRoleSelectMenu() && interaction.customId === 'ap_rb_pick_role_perms') {
+    const roleId = interaction.values.at(0);
+    const chSelect = new ActionRowBuilder().addComponents(
+      new ChannelSelectMenuBuilder()
+        .setCustomId(`ap_rb_setch_${roleId}`)
+        .setPlaceholder('Выберите каналы/категории для открытия доступа (до 15)...')
+        .setMinValues(1)
+        .setMaxValues(15)
+    );
+    return interaction.update({ content: `👁 Выберите каналы или категории, которые должна **видеть** роль <@&${roleId}>:`, components: [chSelect] });
+  }
+
+  if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('ap_rb_setch_')) {
+    const roleId = interaction.customId.replace('ap_rb_setch_', '');
+    const channelIds = interaction.values;
+    let updatedCount = 0;
+
+    for (const chId of channelIds) {
+      const ch = interaction.guild.channels.cache.get(chId);
+      if (ch && ch.permissionOverwrites) {
+        await ch.permissionOverwrites.edit(roleId, {
+          ViewChannel: true,
+          SendMessages: true,
+          Connect: true,
+          Speak: true,
+          ReadMessageHistory: true
+        }).then(() => updatedCount++).catch(() => {});
+      }
+    }
+
+    return interaction.update({
+      content: `✅ Доступ (просмотр, отправка сообщений, вход в войс) для роли <@&${roleId}> открыт в **${updatedCount}** каналах/категориях!`,
+      components: []
+    });
+  }
+  if (interaction.isButton() && interaction.customId === 'ap_rb_create_ch') {
+    const modal = new ModalBuilder().setCustomId('ap_modal_rb_createch').setTitle('Создание нового канала');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('ch_name').setLabel('Название канала').setPlaceholder('Например: информация-состава').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('ch_type').setLabel('Тип канала (text или voice)').setValue('text').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('ch_cat').setLabel('ID категории (необязательно)').setStyle(TextInputStyle.Short).setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('ch_private').setLabel('Приватный только для семьи? (Да / Нет)').setValue('Да').setStyle(TextInputStyle.Short).setRequired(true)
+      )
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === 'ap_modal_rb_createch') {
+    const name = interaction.fields.getTextInputValue('ch_name').trim();
+    const typeStr = interaction.fields.getTextInputValue('ch_type').trim().toLowerCase();
+    const catId = interaction.fields.getTextInputValue('ch_cat').trim() || undefined;
+    const isPrivate = ['да', 'yes', '+'].includes(interaction.fields.getTextInputValue('ch_private').trim().toLowerCase());
+
+    const overwrites = isPrivate && config.ROLES.FAMQ
+      ? [
+          { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: config.ROLES.FAMQ, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
+          { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] }
+        ]
+      : undefined;
+
+    try {
+      const ch = await interaction.guild.channels.create({
+        name,
+        type: typeStr === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText,
+        parent: catId,
+        permissionOverwrites: overwrites
+      });
+      return interaction.reply({ content: `✅ Канал ${ch} успешно создан!`, ephemeral: true });
+    } catch {
+      return interaction.reply({ content: '❌ Ошибка создания канала. Проверьте ID категории и права бота.', ephemeral: true });
+    }
+  }
+
+  // =========================================================================
+  // 👤 УПРАВЛЕНИЕ ИГРОКОМ (РАНГ, TIER, НИК, ИСКЛЮЧЕНИЕ)
   // =========================================================================
   if (interaction.isButton() && interaction.customId === 'ap_manage_user') {
     const row = new ActionRowBuilder().addComponents(
@@ -688,7 +851,7 @@ async function handleAdmin(interaction, client) {
     return interaction.reply({ content: `✅ Игроку <@${targetId}> установлен ранг **${rankInfo.label}**!`, ephemeral: true });
   }
 
-   if (interaction.isButton() && interaction.customId.startsWith('ap_u_nick_')) {
+  if (interaction.isButton() && interaction.customId.startsWith('ap_u_nick_')) {
     const targetId = interaction.customId.replace('ap_u_nick_', '');
     const modal = new ModalBuilder().setCustomId(`ap_modal_nick_${targetId}`).setTitle('Смена ника игроку');
     modal.addComponents(
@@ -718,7 +881,6 @@ async function handleAdmin(interaction, client) {
     );
     return interaction.reply({ content: `🎯 Выберите уровень Tier для <@${targetId}>:`, components: [row], ephemeral: true });
   }
-
   if (interaction.isButton() && interaction.customId.startsWith('ap_settier_')) {
     const [, targetId, tierNum] = interaction.customId.split('_');
     const member = await interaction.guild.members.fetch(targetId).catch(() => null);
@@ -742,7 +904,7 @@ async function handleAdmin(interaction, client) {
 
     const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
     if (catId) {
-      const pCh = interaction.guild.channels.cache.find(c => c.parentId === catId && c.topic && c.topic.includes(targetId));
+      const pCh = interaction.guild.channels.cache.find(c => c.parentId === catId && c.topic && c.topic.startsWith('Личный портфель') && c.topic.includes(targetId));
       if (pCh) await pCh.delete('Исключение из семьи').catch(() => {});
     }
 
@@ -751,7 +913,7 @@ async function handleAdmin(interaction, client) {
   }
 
   // =========================================================================
-  // 💵 БАЛЛЫ / ⚠️ ВЫГОВОРЫ / ⛔ ЧС / 🔍 АУДИТ / 💾 БЭКАП / 🛡 МОДЕРАЦИЯ
+  // 💵 БАЛЛЫ / ⚠️ ВЫГОВОРЫ / ⛔ ЧС / 📋 РАЗДЕЛЬНОЕ УПРАВЛЕНИЕ НАБОРОМ
   // =========================================================================
   if (interaction.isButton() && (interaction.customId === 'ap_add_points' || interaction.customId === 'ap_rem_points')) {
     const mode = interaction.customId === 'ap_add_points' ? 'add' : 'rem';
@@ -828,7 +990,7 @@ async function handleAdmin(interaction, client) {
   }
 
   if (interaction.isButton() && interaction.customId === 'ap_blacklist') {
-    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, blacklist: [] });
+    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, captOpen: true, rpOpen: true, blacklist: [] });
     const list = (adminData.blacklist || []).map((b, i) => `${i + 1}. <@${b.userId}> (\`${b.userId}\`) — ${b.reason}`).join('\n') || '*Чёрный список пуст*';
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ap_bl_add_btn').setLabel('➕ Добавить в ЧС').setStyle(ButtonStyle.Danger),
@@ -850,9 +1012,10 @@ async function handleAdmin(interaction, client) {
     );
     return interaction.showModal(modal);
   }
+
   if (interaction.isModalSubmit() && (interaction.customId === 'ap_modal_bl_add' || interaction.customId === 'ap_modal_bl_rem')) {
     const uid = interaction.fields.getTextInputValue('uid').trim();
-    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, blacklist: [] });
+    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, captOpen: true, rpOpen: true, blacklist: [] });
     if (!Array.isArray(adminData.blacklist)) adminData.blacklist = [];
 
     if (interaction.customId === 'ap_modal_bl_add') {
@@ -866,20 +1029,43 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ content: `✅ \`${uid}\` удалён из чёрного списка.`, ephemeral: true });
     }
   }
+  // 📋 РАЗДЕЛЬНОЕ УПРАВЛЕНИЕ НАБОРОМ (ОБЩИЙ / CAPT / RP)
+  if (interaction.isButton() && (interaction.customId === 'ap_recruit_ctl' || interaction.customId.startsWith('ap_rec_tog_'))) {
+    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, captOpen: true, rpOpen: true, blacklist: [] });
+    if (adminData.recruitOpen === undefined) adminData.recruitOpen = true;
+    if (adminData.captOpen === undefined) adminData.captOpen = true;
+    if (adminData.rpOpen === undefined) adminData.rpOpen = true;
 
-  if (interaction.isButton() && interaction.customId === 'ap_recruit_ctl') {
-    const adminData = getJson(FILES.ADMIN, { recruitOpen: true, blacklist: [] });
-    adminData.recruitOpen = !adminData.recruitOpen;
-    saveJson(FILES.ADMIN, adminData);
-    return interaction.reply({
-      content: adminData.recruitOpen ? '🟢 Набор в семью **ОТКРЫТ**!' : '🔴 Набор в семью **ЗАКРЫТ**!',
-      ephemeral: true
-    });
+    if (interaction.customId === 'ap_rec_tog_all') adminData.recruitOpen = !adminData.recruitOpen;
+    if (interaction.customId === 'ap_rec_tog_capt') adminData.captOpen = !adminData.captOpen;
+    if (interaction.customId === 'ap_rec_tog_rp') adminData.rpOpen = !adminData.rpOpen;
+
+    if (interaction.customId.startsWith('ap_rec_tog_')) {
+      saveJson(FILES.ADMIN, adminData);
+    }
+
+    const statusText =
+      `📋 **Управление статусами набора в семью:**\n\n` +
+      `• **Общий набор:** ${adminData.recruitOpen ? '🟢 ОТКРЫТ' : '🔴 ЗАКРЫТ'}\n` +
+      `• **⚔️ Capt-состав:** ${adminData.captOpen ? '🟢 ОТКРЫТ' : '🔴 ЗАКРЫТ'}\n` +
+      `• **🎭 RP-состав:** ${adminData.rpOpen ? '🟢 ОТКРЫТ' : '🔴 ЗАКРЫТ'}`;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ap_rec_tog_all').setLabel(adminData.recruitOpen ? 'Закрыть общий набор' : 'Открыть общий набор').setStyle(adminData.recruitOpen ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap_rec_tog_capt').setLabel(adminData.captOpen ? 'Закрыть Capt' : 'Открыть Capt').setStyle(adminData.captOpen ? ButtonStyle.Danger : ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap_rec_tog_rp').setLabel(adminData.rpOpen ? 'Закрыть RP' : 'Открыть RP').setStyle(adminData.rpOpen ? ButtonStyle.Danger : ButtonStyle.Success)
+    );
+
+    if (interaction.customId === 'ap_recruit_ctl') {
+      return interaction.reply({ content: statusText, components: [row], ephemeral: true });
+    }
+    return interaction.update({ content: statusText, components: [row] });
   }
 
+  // 🔍 АУДИТ РОЛЕЙ И НИКОВ
   if (interaction.isButton() && interaction.customId === 'ap_audit') {
     await interaction.deferReply({ ephemeral: true });
-    await interaction.guild.members.fetch().catch(() => {});
+    if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
     const famMembers = interaction.guild.members.cache.filter(m => !m.user.bot && config.ROLES.FAMQ && m.roles.cache.has(config.ROLES.FAMQ));
     const badNicks = famMembers.filter(m => !m.displayName.includes('|') && !m.displayName.includes('#'));
 
@@ -893,25 +1079,186 @@ async function handleAdmin(interaction, client) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  if (interaction.isButton() && interaction.customId === 'ap_backup') {
-    const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.json')).map(f => path.join(__dirname, f));
-    return interaction.reply({ content: `💾 Актуальный бэкап баз данных (${files.length} файлов):`, files: files.slice(0, 10), ephemeral: true });
+  // 💼 КОНТРОЛЬ ПОРТФЕЛЕЙ (КТО НЕ СОЗДАЛ + НАПОМИНАНИЕ В ЛС)
+  if (interaction.isButton() && interaction.customId === 'ap_portfolios') {
+    await interaction.deferReply({ ephemeral: true });
+    if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
+
+    const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
+    const pChannels = interaction.guild.channels.cache.filter(
+      c => c.parentId === catId && c.topic && c.topic.startsWith('Личный портфель')
+    );
+
+    const famMembers = interaction.guild.members.cache.filter(
+      m => !m.user.bot && config.ROLES.FAMQ && m.roles.cache.has(config.ROLES.FAMQ)
+    );
+
+    const missing = famMembers.filter(m => !pChannels.some(ch => ch.topic.includes(m.id)));
+
+    const missingList = missing.size > 0
+      ? missing.map(m => `• <@${m.id}> (\`${m.displayName}\`)`).slice(0, 35).join('\n')
+      : '✅ Все участники семьи создали личный портфель!';
+
+    const embed = new EmbedBuilder()
+      .setTitle('💼 Контроль личных портфелей')
+      .setColor('#9B59B6')
+      .addFields(
+        { name: '📁 Создано портфелей', value: `**${pChannels.size} шт.** в <#${catId}>`, inline: true },
+        { name: '⚠️ Без портфеля', value: `**${missing.size} чел.**`, inline: true },
+        { name: '📋 Список участников без портфеля', value: missingList.slice(0, 1024), inline: false }
+      )
+      .setTimestamp();
+
+    const components = [];
+    if (missing.size > 0) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('ap_portfolios_remind')
+            .setLabel(`📩 Напомнить в ЛС (${missing.size} чел.)`)
+            .setStyle(ButtonStyle.Primary)
+        )
+      );
+    }
+
+    return interaction.editReply({ embeds: [embed], components });
   }
 
-  if (interaction.isButton() && ['ap_activity', 'ap_portfolios', 'ap_request_vods', 'ap_mod', 'ap_vacations', 'ap_afk_stats', 'ap_shop', 'ap_recruit_stats', 'ap_staff_list', 'ap_giveaway'].includes(interaction.customId)) {
+  if (interaction.isButton() && interaction.customId === 'ap_portfolios_remind') {
+    await interaction.deferUpdate();
+    if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
+
+    const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
+    const pChannels = interaction.guild.channels.cache.filter(
+      c => c.parentId === catId && c.topic && c.topic.startsWith('Личный портфель')
+    );
+    const famMembers = interaction.guild.members.cache.filter(
+      m => !m.user.bot && config.ROLES.FAMQ && m.roles.cache.has(config.ROLES.FAMQ)
+    );
+    const missing = famMembers.filter(m => !pChannels.some(ch => ch.topic.includes(m.id)));
+
+    let sent = 0;
+    for (const [, m] of missing) {
+      const ok = await m.send(
+        `💼 **Напоминание от руководства ${interaction.guild.name}!**\nУ вас до сих пор не создан **личный портфель**. Пожалуйста, создайте его в канале портфелей, иначе вы не сможете получить повышение!`
+      ).then(() => true).catch(() => false);
+      if (ok) sent++;
+    }
+
+    return interaction.editReply({
+      content: `✅ Напоминание о создании портфеля отправлено в ЛС **${sent} из ${missing.size}** участников!`,
+      components: []
+    });
+  }
+
+  // 🛡 МОДЕРАЦИЯ (ВЫБОР КАНАЛА -> КОЛИЧЕСТВО СООБЩЕНИЙ)
+  if (interaction.isButton() && interaction.customId === 'ap_mod') {
+    const chSelect = new ActionRowBuilder().addComponents(
+      new ChannelSelectMenuBuilder()
+        .setCustomId('ap_mod_sel_channel')
+        .setPlaceholder('Выберите канал для очистки сообщений...')
+        .setChannelTypes(ChannelType.GuildText)
+    );
+    return interaction.reply({
+      content: '🛡 Выберите текстовый канал, в котором нужно удалить сообщения:',
+      components: [chSelect],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.isChannelSelectMenu() && interaction.customId === 'ap_mod_sel_channel') {
+    const channelId = interaction.values.at(0);
+    const modal = new ModalBuilder()
+      .setCustomId(`ap_modal_clear_${channelId}`)
+      .setTitle('Очистка сообщений в канале');
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('cnt')
+          .setLabel('Сколько сообщений удалить (1–100)?')
+          .setPlaceholder('Например: 20')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+      )
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('ap_modal_clear_')) {
+    const channelId = interaction.customId.replace('ap_modal_clear_', '');
+    const targetCh = interaction.guild.channels.cache.get(channelId);
+    if (!targetCh) {
+      return interaction.reply({ content: '❌ Выбранный канал не найден.', ephemeral: true });
+    }
+
+    const cnt = Math.min(100, Math.max(1, parseInt(interaction.fields.getTextInputValue('cnt'), 10) || 10));
+    const deleted = await targetCh.bulkDelete(cnt, true).catch(() => null);
+
+    sendAdminLog(
+      interaction.guild,
+      '🧹 Очистка сообщений (Модерация)',
+      `Админ: <@${interaction.user.id}>\nКанал: <#${channelId}>\nУдалено: **${deleted ? deleted.size : 0}** шт.`,
+      '#E67E22'
+    );
+
+    return interaction.reply({
+      content: `🧹 В канале <#${channelId}> удалено сообщений: **${deleted ? deleted.size : 0}**.`,
+      ephemeral: true
+    });
+  }
+  // 📊 АКТИВНОСТЬ И НЕАКТИВ УЧАСТНИКОВ
+  if (interaction.isButton() && interaction.customId === 'ap_activity') {
+    await interaction.deferReply({ ephemeral: true });
+    if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
+
     const eco = getJson(FILES.ECONOMY, {});
-    if (interaction.customId === 'ap_activity') {
-      const top = Object.entries(eco).sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 15);
-      const text = top.map(([uid, d], i) => `${i + 1}. <@${uid}> — **${d.points || 0}** б. | 🎙 ${Math.floor((d.voiceMinutes || 0) / 60)} ч.`).join('\n') || 'Данных пока нет.';
-      return interaction.reply({ content: `📊 **Топ-15 по баллам и войсу:**\n${text}`, ephemeral: true });
-    }
-    if (interaction.customId === 'ap_portfolios') {
-      const catId = config.CHANNELS.PORTFOLIO_CATEGORY;
-      const pChannels = interaction.guild.channels.cache.filter(c => c.parentId === catId);
-      return interaction.reply({ content: `💼 **Создано личных портфелей:** **${pChannels.size} шт.** в категории <#${catId}>.`, ephemeral: true });
-    }
+    const act = getJson(FILES.ACTIVITY, {});
+
+    const top = Object.entries(eco)
+      .sort((a, b) => (b.points || 0) - (a.points || 0))
+      .slice(0, 10);
+
+    const topText = top.length > 0
+      ? top.map(([uid, d], i) => `${i + 1}. <@${uid}> — **${d.points || 0}** б. | 🎙 ${Math.floor((d.voiceMinutes || 0) / 60)} ч.`).join('\n')
+      : 'Данных пока нет.';
+
+    const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const famMembers = interaction.guild.members.cache.filter(
+      m => !m.user.bot &&
+           config.ROLES.FAMQ && m.roles.cache.has(config.ROLES.FAMQ) &&
+           (!config.ROLES.VACATION || !m.roles.cache.has(config.ROLES.VACATION))
+    );
+
+    const inactive = famMembers.filter(m => {
+      const last = act[m.id]?.lastSeen || 0;
+      return last > 0 && (now - last) > fiveDaysMs;
+    });
+
+    const inactiveText = inactive.size > 0
+      ? inactive.map(m => {
+          const days = Math.floor((now - act[m.id].lastSeen) / (24 * 60 * 60 * 1000));
+          return `• <@${m.id}> — неактив **${days} дн.**`;
+        }).slice(0, 15).join('\n')
+      : '✅ Неактивных (более 5 дней без отпуска) не найдено.';
+
+    const embed = new EmbedBuilder()
+      .setTitle('📊 Активность и контроль неактива')
+      .setColor('#3498DB')
+      .addFields(
+        { name: '🏆 Топ-10 по баллам и войсу', value: topText.slice(0, 1024), inline: false },
+        { name: '💤 Неактив > 5 дней (без отпуска)', value: inactiveText.slice(0, 1024), inline: false }
+      )
+      .setTimestamp();
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // 📅 ОТПУСК / 💤 АФК / 🕵️ АКТИВ РЕКРУТОВ / 👑 СОСТАВ СТАФФА / 🎥 ОТКАТЫ
+  if (interaction.isButton() && ['ap_vacations', 'ap_afk_stats', 'ap_recruit_stats', 'ap_staff_list', 'ap_request_vods'].includes(interaction.customId)) {
     if (interaction.customId === 'ap_vacations') {
-      await interaction.guild.members.fetch().catch(() => {});
+      if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
       const vac = interaction.guild.members.cache.filter(m => !m.user.bot && config.ROLES.VACATION && m.roles.cache.has(config.ROLES.VACATION));
       return interaction.reply({ content: `📅 **В отпуске сейчас (${vac.size}):**\n${vac.map(m => `• <@${m.id}>`).join('\n') || 'Никого нет в отпуске.'}`, ephemeral: true });
     }
@@ -919,11 +1266,6 @@ async function handleAdmin(interaction, client) {
       const afkCh = interaction.guild.channels.cache.get(config.CHANNELS.AFK_VOICE);
       const inAfk = afkCh ? afkCh.members.filter(m => !m.user.bot) : null;
       return interaction.reply({ content: `💤 **В АФК-войсе сейчас (${inAfk ? inAfk.size : 0}):**\n${inAfk && inAfk.size > 0 ? inAfk.map(m => `• <@${m.id}>`).join('\n') : 'В АФК-канале пусто.'}`, ephemeral: true });
-    }
-    if (interaction.customId === 'ap_shop') {
-      const items = settings.PANELS.ECONOMY?.shopItems || {};
-      const list = Object.values(items).map(it => `• **${it.label}** — **${it.cost} б.**`).join('\n') || 'Магазин пуст.';
-      return interaction.reply({ content: `🛒 **Текущий ассортимент магазина:**\n${list}`, ephemeral: true });
     }
     if (interaction.customId === 'ap_recruit_stats') {
       const stats = getJson(FILES.STAFF_RATING, {});
@@ -937,32 +1279,156 @@ async function handleAdmin(interaction, client) {
       return interaction.reply({ content: '🎥 Выберите игроков для запроса отката:', components: [select], ephemeral: true });
     }
     if (interaction.customId === 'ap_staff_list') {
-      await interaction.guild.members.fetch().catch(() => {});
-      const hs = interaction.guild.members.cache.filter(m => !m.user.bot && config.ROLES.HIGH_STAFF && m.roles.cache.has(config.ROLES.HIGH_STAFF));
-      return interaction.reply({ content: `👑 **High Staff (${hs.size}):**\n${hs.map(m => `• <@${m.id}>`).join('\n') || 'Никого не найдено'}`, ephemeral: true });
+      if (interaction.guild.members.cache.size < 5) await interaction.guild.members.fetch().catch(() => {});
+      const staffRoles = [
+        { name: '11 | Leader', id: config.ROLES.LEADER },
+        { name: '10 | Dep Leader', id: config.ROLES.DEP_LEADER },
+        { name: '9 | Caller', id: config.ROLES.CALLER },
+        { name: '8 | Chief Recruit', id: config.ROLES.CHIEF_RECRUIT },
+        { name: '7 | Dep Chief Recruit', id: config.ROLES.DEP_CHIEF_RECRUIT },
+        { name: '6 | High', id: config.ROLES.RANK_6_HIGH }
+      ].filter(r => r.id);
+
+      const lines = staffRoles.map(r => {
+        const members = interaction.guild.members.cache.filter(m => !m.user.bot && m.roles.cache.has(r.id));
+        const list = members.size > 0 ? members.map(m => `<@${m.id}>`).join(', ') : '*пусто*';
+        return `• **${r.name}:** ${list}`;
+      });
+
+      return interaction.reply({ content: `👑 **Руководящий состав семьи:**\n\n${lines.join('\n')}`, ephemeral: true });
     }
-    if (interaction.customId === 'ap_giveaway') {
-      return interaction.reply({ content: '🎉 Для запуска розыгрыша используйте панель в канале розыгрышей (`/панель_розыгрышей`).', ephemeral: true });
-    }
-    if (interaction.customId === 'ap_mod') {
-      const modal = new ModalBuilder().setCustomId('ap_modal_clear').setTitle('Очистка сообщений в канале');
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('cnt').setLabel('Сколько сообщений удалить (1-100)?').setStyle(TextInputStyle.Short).setRequired(true)
-        )
+  }
+
+  // 🛒 РЕДАКТОР МАГАЗИНА, НАГРАД ЗА ЗАДАНИЯ И ВОЙСА
+  if (interaction.isButton() && interaction.customId === 'ap_shop') {
+    const ecoCfg = settings.PANELS.ECONOMY;
+    const v = ecoCfg.voice;
+    const itemsText = Object.values(ecoCfg.shopItems).map(it => `• **${it.label}** — \`${it.cost} б.\``).join('\n');
+    const actsText = Object.values(ecoCfg.activities).map(ac => `• **${ac.label}** — \`+${ac.points} б.\``).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setTitle('🛒 Настройка магазина, заданий и войса')
+      .setColor('#9B59B6')
+      .addFields(
+        { name: '🎙 Начисление за голосовой онлайн', value: `**+${v.POINTS_PER_INTERVAL} б.** каждые **${v.CHECK_INTERVAL_MINUTES} мин.**`, inline: false },
+        { name: '💎 Награды за задания', value: actsText, inline: false },
+        { name: '🛍 Товары в магазине', value: itemsText, inline: false }
       );
-      return interaction.showModal(modal);
-    }
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ap_eco_edit_shop').setLabel('🛍 Изменить цены товаров').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('ap_eco_edit_acts').setLabel('💎 Изменить баллы за задания').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ap_eco_edit_voice').setLabel('🎙 Настроить войс').setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+  }
+
+  if (interaction.isButton() && interaction.customId === 'ap_eco_edit_shop') {
+    const items = settings.PANELS.ECONOMY.shopItems;
+    const select = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('ap_eco_sel_shop')
+        .setPlaceholder('👇 Выберите товар для изменения...')
+        .addOptions(Object.entries(items).map(([k, v]) => ({ label: `${v.label} (${v.cost} б.)`, description: (v.description || '').slice(0, 100), value: k })))
+    );
+    return interaction.reply({ content: '🛍 Выберите товар:', components: [select], ephemeral: true });
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId === 'ap_eco_sel_shop') {
+    const key = interaction.values.at(0);
+    const item = settings.PANELS.ECONOMY.shopItems[key];
+    const modal = new ModalBuilder().setCustomId(`ap_modal_ecoshop_${key}`).setTitle('Редактор товара');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('s_label').setLabel('Название товара').setValue(item.label).setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('s_cost').setLabel('Цена в баллах (число)').setValue(String(item.cost)).setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('s_desc').setLabel('Описание товара').setValue(item.description || '').setStyle(TextInputStyle.Short).setRequired(true))
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('ap_modal_ecoshop_')) {
+    const key = interaction.customId.replace('ap_modal_ecoshop_', '');
+    const label = interaction.fields.getTextInputValue('s_label').trim();
+    const cost = Math.max(1, parseInt(interaction.fields.getTextInputValue('s_cost').trim(), 10) || 100);
+    const description = interaction.fields.getTextInputValue('s_desc').trim();
+
+    const customEco = getJson('economy_custom.json', {});
+    if (!customEco.shopItems) customEco.shopItems = {};
+    customEco.shopItems[key] = { label, cost, description };
+    saveJson('economy_custom.json', customEco);
+
+    await refreshPublishedPanel(interaction.guild, 'SHOP_PANEL');
+    return interaction.reply({ content: `✅ Товар **${label}** обновлён (цена: **${cost} б.**), панель магазина в канале перерисована!`, ephemeral: true });
+  }
+
+  if (interaction.isButton() && interaction.customId === 'ap_eco_edit_acts') {
+    const acts = settings.PANELS.ECONOMY.activities;
+    const select = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('ap_eco_sel_act')
+        .setPlaceholder('👇 Выберите задание...')
+        .addOptions(Object.entries(acts).map(([k, v]) => ({ label: `${v.label} (+${v.points} б.)`, description: (v.desc || '').slice(0, 100), value: k })))
+    );
+       return interaction.reply({ content: '💎 Выберите активность:', components: [select], ephemeral: true });
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId === 'ap_eco_sel_act') {
+    const key = interaction.values.at(0);
+    const act = settings.PANELS.ECONOMY.activities[key];
+    const modal = new ModalBuilder().setCustomId(`ap_modal_ecoact_${key}`).setTitle('Награда за задание');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('a_label').setLabel('Название задания').setValue(act.label).setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('a_pts').setLabel('Сколько баллов давать (число)').setValue(String(act.points)).setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('a_desc').setLabel('Описание / условие').setValue(act.desc || '').setStyle(TextInputStyle.Short).setRequired(true))
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('ap_modal_ecoact_')) {
+    const key = interaction.customId.replace('ap_modal_ecoact_', '');
+    const label = interaction.fields.getTextInputValue('a_label').trim();
+    const points = Math.max(1, parseInt(interaction.fields.getTextInputValue('a_pts').trim(), 10) || 10);
+    const desc = interaction.fields.getTextInputValue('a_desc').trim();
+
+    const customEco = getJson('economy_custom.json', {});
+    if (!customEco.activities) customEco.activities = {};
+    customEco.activities[key] = { label, points, desc };
+    saveJson('economy_custom.json', customEco);
+
+    await refreshPublishedPanel(interaction.guild, 'POINTS_PANEL');
+    return interaction.reply({ content: `✅ Задание **${label}** обновлено (**+${points} б.**), панель баллов в канале перерисована!`, ephemeral: true });
+  }
+
+  if (interaction.isButton() && interaction.customId === 'ap_eco_edit_voice') {
+    const v = settings.PANELS.ECONOMY.voice;
+    const modal = new ModalBuilder().setCustomId('ap_modal_ecovoice').setTitle('Настройка баллов за войс');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('v_mins').setLabel('Интервал в минутах (например: 20)').setValue(String(v.CHECK_INTERVAL_MINUTES)).setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('v_pts').setLabel('Сколько баллов за интервал (например: 5)').setValue(String(v.POINTS_PER_INTERVAL)).setStyle(TextInputStyle.Short).setRequired(true))
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === 'ap_modal_ecovoice') {
+    const mins = Math.max(1, parseInt(interaction.fields.getTextInputValue('v_mins').trim(), 10) || 20);
+    const pts = Math.max(1, parseInt(interaction.fields.getTextInputValue('v_pts').trim(), 10) || 5);
+
+    const customEco = getJson('economy_custom.json', {});
+    customEco.voice = { CHECK_INTERVAL_MINUTES: mins, POINTS_PER_INTERVAL: pts, IGNORE_DEAFENED: true };
+    saveJson('economy_custom.json', customEco);
+
+    const { startVoicePointsTracker } = require('./economy');
+    startVoicePointsTracker(client);
+    await refreshPublishedPanel(interaction.guild, 'POINTS_PANEL');
+
+    return interaction.reply({ content: `✅ Настройки войса обновлены: **+${pts} б.** каждые **${mins} мин.** (таймер перезапущен, панель обновлена)!`, ephemeral: true });
   }
 
   if (interaction.isUserSelectMenu() && interaction.customId === 'ap_vods_users') {
     const ids = interaction.values;
     const modal = new ModalBuilder().setCustomId(`ap_modal_vods_${ids.join('-')}`).setTitle('Массовый запрос откатов');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('vod_mp').setLabel('С какого МП нужен откат?').setPlaceholder('Капт / ВЗ / MCL').setStyle(TextInputStyle.Short).setRequired(true)
-      )
-    );
+    modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('vod_mp').setLabel('С какого МП нужен откат?').setPlaceholder('Капт / ВЗ / MCL').setStyle(TextInputStyle.Short).setRequired(true)));
     return interaction.showModal(modal);
   }
 
@@ -979,20 +1445,6 @@ async function handleAdmin(interaction, client) {
     }
     return interaction.reply({ content: `✅ Запрос отката отправлен в ЛС **${ok} из ${ids.length}** игрокам.`, ephemeral: true });
   }
-
-  if (interaction.isModalSubmit() && interaction.customId === 'ap_modal_clear') {
-    const cnt = Math.min(100, Math.max(1, parseInt(interaction.fields.getTextInputValue('cnt'), 10) || 10));
-    const deleted = await interaction.channel.bulkDelete(cnt, true).catch(() => null);
-    return interaction.reply({ content: `🧹 Удалено сообщений: **${deleted ? deleted.size : 0}**.`, ephemeral: true });
-  }
 }
 
-module.exports = {
-  adminCommand,
-  handleAdmin,
-  buildAdminPanelEmbed,
-  buildAdminPanelRows
-};
-
-
-
+module.exports = { adminCommand, handleAdmin, buildAdminPanelEmbed, buildAdminPanelRows };

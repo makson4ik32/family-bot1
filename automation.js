@@ -24,9 +24,12 @@ function isStaffOrCaller(member) {
     config.ROLES.HIGH_STAFF,
     config.ROLES.CALLER,
     config.ROLES.COACH,
-    config.ROLES.DEP_CHIEF
+    config.ROLES.DEP_LEADER,
+    config.ROLES.LEADER
   ].filter(Boolean).some(r => member.roles.cache.has(r));
 }
+
+
 
 // =========================================================================
 // 1. АВТОМАТИЧЕСКИЕ СОБЫТИЯ (ЛИВ С СЕРВЕРА + УДАЛЕНИЕ ПОРТФЕЛЯ + ЧС)

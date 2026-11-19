@@ -42,9 +42,10 @@ const PANELS = {
   RECRUIT: {
     title: '👋 Путь в семью начинается здесь!',
     description:
-      `• Уведомление о приглашении на обзвон обычно отправляется в личные сообщения. Если ЛС закрыты, оно отправляется в канал — <#${config.CHANNELS.RECRUIT_RESULTS}>. В этот канал также приходят уведомления об отказе в наборе.\n\n` +
-      'Обычно заявки обрабатываются в течение 24 часов — всё зависит от того, насколько загружены наши рекрутеры на данный момент.\n\n' +
-      'Подать заявку можно только при открытом наборе. Если не выходит — набор закрыт. Внимательно прочтите сообщение ниже.\n\n' +
+      `• После подачи заявки для вас автоматически создастся **личный закрытый канал** для связи с рекрутами.\n` +
+      `• Уведомление об итогах также дублируется в ЛС или в канал — <#${config.CHANNELS.RECRUIT_RESULTS}>.\n\n` +
+      'Обычно заявки обрабатываются в течение 24 часов — всё зависит от загруженности рекрутеров.\n\n' +
+      'Подать заявку можно только при открытом наборе в выбранное направление.\n\n' +
       '⚠️ **Набор в семью закрыт для лиц младше 16 лет.**\n\n' +
       '• Откаты с GG - не более 1 недели (не менее 7 минут)\n' +
       '• Откаты с МП (ВЗЗ, MCL, Capt) - не более 60 дней назад.\n' +
@@ -56,12 +57,12 @@ const PANELS = {
     footer: 'Заявки рассматриваются Recruitami в ближайшее время',
     placeholder: '👇 Выбери направление для вступления...',
     modalTitlePrefix: 'Заявка в семью',
-    replySent: '✅ Твоя заявка отправлена Recruitam! Ожидай вызова на обзвон.',
+    replySent: '✅ Твоя заявка создана! Перейди в свой личный канал заявки и ожидай рекрута.',
     options: {
       captLabel: '⚔️ Capt Состав',
-      captDesc: 'Капты турниры (нужны откаты)',
+      captDesc: 'Капты и турниры (нужны откаты)',
       rpLabel: '🎭 RP Состав',
-      rpDesc: 'Rp контент'
+      rpDesc: 'RP контент и развитие'
     },
     fields: [
       { id: 'r_nick', label: 'Ваш игровой Ник и Возраст (ООС)', placeholder: 'Например: Ivan_Begov | 18 лет', style: 'SHORT', required: true },
@@ -120,11 +121,11 @@ const PANELS = {
       '**5(Recruiting)-6(High):**\n' +
       '• Наличие 350 баллов\n' +
       '• Ссылка на одобренную заявку\n\n' +
-      '**6(High)-7(Dep Chief):**\n' +
+      '**6(High)-7(Dep Chief Recruit):**\n' +
       '• Ссылка на одобренную заявку\n\n' +
-      '**7(Dep Chief)-Chief Recruit:**\n' +
+      '**7(Dep Chief Recruit)-8(Chief Recruit):**\n' +
       '• Ссылка на одобренную заявку\n\n' +
-      '**9(Caller):**\n' +
+      '**8(Chief Recruit)-9(Caller):**\n' +
       '• Ссылка на одобренную заявку',
     color: '#3498DB',
     image: '',
@@ -160,7 +161,6 @@ const PANELS = {
     btnVacation: '🏖 Взять отпуск',
     btnReturn: '🟢 Вернуться в строй'
   },
-
   EVENTS: {
     title: '⚔️ Панель управления сборами | Капты, MCL, ВЗ, РП',
     description:
@@ -180,21 +180,38 @@ const PANELS = {
   },
 
   ECONOMY: {
-    voice: {
-      CHECK_INTERVAL_MINUTES: 20,
-      POINTS_PER_INTERVAL: 5,
-      IGNORE_DEAFENED: true
+    get voice() {
+      const custom = getJson('economy_custom.json', {});
+      return {
+        CHECK_INTERVAL_MINUTES: custom.voice?.CHECK_INTERVAL_MINUTES ?? 20,
+        POINTS_PER_INTERVAL: custom.voice?.POINTS_PER_INTERVAL ?? 5,
+        IGNORE_DEAFENED: custom.voice?.IGNORE_DEAFENED ?? true
+      };
     },
-    activities: {
-      capt_win: { label: 'Победа на капте', points: 25, desc: 'Скрин итога или откат с мероприятия' },
-      vz_supply: { label: 'Победа в семейном группе', points: 20, desc: 'Скриншот с мероприятия' },
-      contract_done: { label: 'Закрытие семейного контракта', points: 15, desc: 'Скрин сдачи контракта' },
-      invite_friend: { label: 'Поражение в семейном группе', points: 10, desc: 'Скриншот с мероприятия' }
+    get activities() {
+      const base = {
+        capt_win: { label: 'Победа на капте', points: 25, desc: 'Скрин итога или откат с мероприятия' },
+        vz_supply: { label: 'Победа в семейном группе', points: 20, desc: 'Скриншот с мероприятия' },
+        contract_done: { label: 'Закрытие семейного контракта', points: 15, desc: 'Скрин сдачи контракта' },
+        invite_friend: { label: 'Поражение в семейном группе', points: 10, desc: 'Скриншот с мероприятия' }
+      };
+      const custom = getJson('economy_custom.json', {}).activities || {};
+      for (const [k, v] of Object.entries(custom)) {
+        if (base[k]) base[k] = { ...base[k], ...v };
+      }
+      return base;
     },
-    shopItems: {
-      remove_warn: { label: 'Снятие 1 выговора', cost: 150, description: 'Автоматически снимает 1 активный выговор' },
-      money_100k: { label: 'Выплата 50.000$', cost: 200, description: 'Перевод на ваш банковский счёт в игре' },
-      heavy_sniper: { label: 'Выплата 100.000$', cost: 350, description: 'Перевод на ваш банковский счёт в игре' }
+    get shopItems() {
+      const base = {
+        remove_warn: { label: 'Снятие 1 выговора', cost: 150, description: 'Автоматически снимает 1 активный выговор' },
+        money_100k: { label: 'Выплата 50.000$', cost: 200, description: 'Перевод на ваш банковский счёт в игре' },
+        heavy_sniper: { label: 'Выплата 100.000$', cost: 350, description: 'Перевод на ваш банковский счёт в игре' }
+      };
+      const custom = getJson('economy_custom.json', {}).shopItems || {};
+      for (const [k, v] of Object.entries(custom)) {
+        if (base[k]) base[k] = { ...base[k], ...v };
+      }
+      return base;
     },
     POINTS_PANEL: {
       title: '💎 Система заработка баллов',
@@ -209,7 +226,7 @@ const PANELS = {
         { id: 'p_proof', label: 'Доказательства (ссылка Imgur / YouTube)', placeholder: 'Вставьте ссылку на скриншоты или откат', style: 'PARAGRAPH', required: true }
       ]
     },
-       SHOP_PANEL: {
+    SHOP_PANEL: {
       title: '🛍 Семейный магазин наград',
       description: 'Выбери желаемую награду из списка ниже. Баллы спишутся автоматически после подтверждения.',
       color: '#9B59B6',
@@ -297,7 +314,6 @@ const PANELS = {
     btnIdea: '💡 Предложить идею',
     btnQuestion: '👑 Вопрос лидеру'
   },
-
   WARNS: {
     INFO_PANEL: {
       title: '⚠️ Система выговоров и дисциплина',
@@ -355,33 +371,29 @@ const PANELS = {
   },
 
   ADMIN_PANEL: {
-    title: 'Панель управления для доверенных членов семьи.',
+    title: '🛠 Главная панель управления семьёй',
     description:
-      'Взаимодействие с ботом осуществляется преимущественно через это меню, которое включает **18 кнопок** + конструктор ролей и панелей.\n\n' +
-      '👤 = Управление игроком (ранг, Tier, ник и поиск портфеля).\n' +
-      '📊 = Голосовая активность и рейтинг участников по баллам.\n' +
-      '🔍 = Аудит ролей и правильности ников состава.\n' +
-      '💼 = Контроль личных портфелей (кто не создал / чьи владельцы вышли).\n' +
-      '⛔ = Управление чёрным списком (ЧС) семьи.\n' +
-      '⚠️ = Выдача и снятие выговоров участникам.\n' +
-      '🎥 = Массовый запрос откатов в личные сообщения.\n' +
-      '🛡 = Очистка чата, закрытие канала и объявления.\n' +
-      '💵 = Начислить участнику баллы.\n' +
-      '📉 = Уменьшить количество баллов у участника.\n' +
-      '📅 = Просмотр участников в отпуске.\n' +
-      '💤 = Просмотр АФК-активности членов семьи.\n' +
-      '🛒 = Просмотр ассортимента и цен магазина.\n' +
-      '📋 = Управление набором в семью (открыть/закрыть).\n' +
-      '🕵️ = Статистика работы отдела рекрутов.\n' +
-      '👑 = Список руководящего состава по должностям.\n' +
-      '🎉 = Розыгрыш призов для членов семьи.\n' +
-      '💾 = Скачать резервную копию баз данных (JSON).',
+      'Полное управление составом, ролями, каналами, набором и панелями Discord-сервера.\n\n' +
+      '👤 **Управление игроком** — ранг, Tier, ник и исключение.\n' +
+      '📊 **Активность и неактив** — топ по баллам, войсу и список неактивных участников.\n' +
+      '🔍 **Аудит ролей и ников** — проверка соответствия ников форме.\n' +
+      '💼 **Портфели** — список участников семьи, которые ещё не создали портфель.\n' +
+      '⛔ **Чёрный список** — управление ЧС семьи.\n' +
+      '⚠️ **Выговор** — выдача и снятие предупреждений.\n' +
+      '🎥 **Запрос откатов** — массовый запрос видеозаписей в ЛС.\n' +
+      '🛡 **Модерация** — выбор канала и очистка сообщений.\n' +
+      '💵 / 📉 **Баллы** — начисление и снятие баллов.\n' +
+      '📅 **Отпуск** / 💤 **Статистика АФК** / 🛒 **Магазин**.\n' +
+      '📋 **Набор в семью** — отдельное управление общим набором, Capt и RP.\n' +
+      '🕵️ **Актив рекрутов** / 👑 **Состав стаффа**.\n' +
+      '🎨 **Оформление панелей** / 🎭 **Обзвонники** / 🛡 **Конструктор ролей и каналов** / 🗂 **Мастер панелей**.',
     color: '#2B2D31',
     image: '',
     thumbnail: '',
     footer: 'Панель закреплена • Ответы видны только вам'
   }
 };
+
 const DEFAULT_MAPS = {
   factory: {
     name: '🏭 Завод (Factory)',
@@ -440,26 +452,14 @@ const BASE_PROMO_RANKS = {
     remove: [config.ROLES.RECRUIT]
   },
   rank_7: {
-    label: '7 | Dep Chief',
+    label: '7 | Dep Chief Recruit',
     description: 'Ссылка на одобренную заявку',
     requirements: 'Ссылка на одобренную заявку',
-    add: [config.ROLES.DEP_CHIEF, config.ROLES.HIGH_STAFF],
-    remove: [config.ROLES.RANK_6_HIGH],
-    departments: {
-      general: {
-        label: '7 | Dep Chief',
-        description: 'Заместитель главы состава',
-        add: [config.ROLES.DEP_CHIEF, config.ROLES.HIGH_STAFF]
-      },
-      recruit: {
-        label: 'Dep Chief Recruit',
-        description: 'Зам. начальника отдела рекрутинга',
-        add: [config.ROLES.DEP_CHIEF_RECRUIT, config.ROLES.HIGH_STAFF]
-      }
-    }
+    add: [config.ROLES.DEP_CHIEF_RECRUIT, config.ROLES.HIGH_STAFF],
+    remove: [config.ROLES.RANK_6_HIGH]
   },
   chief_recruit: {
-    label: 'Chief Recruit',
+    label: '8 | Chief Recruit',
     description: 'Ссылка на одобренную заявку',
     requirements: 'Ссылка на одобренную заявку',
     add: [config.ROLES.CHIEF_RECRUIT, config.ROLES.HIGH_STAFF],
@@ -525,15 +525,8 @@ const ROLE_REWARDS = {
     main_plus: { label: '4 | Main+', isMainOrRecruit: true },
     recruit: { label: '5 | Recruit', isMainOrRecruit: true },
     high: { label: '6 | High', isMainOrRecruit: false },
-    dep_chief: {
-      label: '7 | Dep Chief',
-      isMainOrRecruit: false,
-      departments: {
-        general: { label: '7 | Dep Chief', description: 'Общий руководящий состав' },
-        recruit: { label: 'Dep Chief Recruit', description: 'Зам. начальника отдела рекрутинга' }
-      }
-    },
-    chief_recruit: { label: 'Chief Recruit', isMainOrRecruit: false },
+    dep_chief_recruit: { label: '7 | Dep Chief Recruit', isMainOrRecruit: false },
+    chief_recruit: { label: '8 | Chief Recruit', isMainOrRecruit: false },
     caller: { label: '9 | Caller', isMainOrRecruit: false }
   }
 };
@@ -557,7 +550,6 @@ const CALLERS = {
     return custom.STAFF_CALLER_ROLES || [
       config.ROLES.HIGH_STAFF,
       config.ROLES.CHIEF_RECRUIT,
-      config.ROLES.DEP_CHIEF,
       config.ROLES.DEP_CHIEF_RECRUIT
     ].filter(Boolean);
   },

@@ -86,7 +86,7 @@ async function handlePromo(interaction, client) {
   const ranksCfg = settings.ROLE_REWARDS.PROMO_RANKS;
   const promoTxt = settings.PANELS.PROMO;
 
-    // 1. Команда создания панели
+       // 1. Команда создания панели
   if (interaction.isChatInputCommand() && interaction.commandName === 'панель_повышения') {
     const embed = settings.applyPanelStyle(
       new EmbedBuilder(),
@@ -106,13 +106,18 @@ async function handlePromo(interaction, client) {
       );
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
-    await interaction.channel.send({ embeds: [embed], components: [row] });
+    const sent = await interaction.channel.send({ embeds: [embed], components: [row] });
+
+    const { getCustomPanels, saveCustomPanels } = require('./panel_manager');
+    const customAll = getCustomPanels();
+    customAll.PROMO = { ...(customAll.PROMO || {}), channelId: interaction.channel.id, messageId: sent.id };
+    saveCustomPanels(customAll);
+
     return interaction.reply({ content: '✅ Панель повышения успешно создана!', ephemeral: true });
   }
 
-
-  // 2. Выбор ранга в списке
-  if (interaction.isStringSelectMenu() && interaction.customId === 'select_promo_rank') {
+  // 2. Выбор ранга в списке (поддерживает оба customId)
+  if (interaction.isStringSelectMenu() && (interaction.customId === 'select_promo_rank' || interaction.customId === 'promo_select_rank')) {
     const rankKey = interaction.values.at(0);
     const rankInfo = ranksCfg[rankKey];
     if (!rankInfo) {
@@ -143,6 +148,7 @@ async function handlePromo(interaction, client) {
     const targetInfo = resolvePromoTarget(ranksCfg, rankKey);
     return interaction.showModal(buildPromoModal(rankKey, targetInfo));
   }
+
 
   // 2.1 Выбор конкретного отдела -> открытие анкеты
   if (interaction.isStringSelectMenu() && interaction.customId === 'select_promo_dept') {

@@ -27,7 +27,7 @@ function hasScladAccess(member) {
 function hasDisciplineAccess(member) {
   if (!member) return false;
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  return [config.ROLES.DISCIPLINE, config.ROLES.HIGH_STAFF, config.ROLES.DEP_CHIEF, config.ROLES.CALLER]
+  return [config.ROLES.DISCIPLINE, config.ROLES.HIGH_STAFF, config.ROLES.CALLER, config.ROLES.DEP_LEADER, config.ROLES.LEADER]
     .filter(Boolean)
     .some(r => member.roles.cache.has(r));
 }
@@ -40,12 +40,14 @@ function getAllRankRoleIds() {
     config.ROLES.RANK_4_MAIN_PLUS,
     config.ROLES.RECRUIT,
     config.ROLES.RANK_6_HIGH,
-    config.ROLES.DEP_CHIEF,
     config.ROLES.DEP_CHIEF_RECRUIT,
     config.ROLES.CHIEF_RECRUIT,
-    config.ROLES.CALLER
+    config.ROLES.CALLER,
+    config.ROLES.DEP_LEADER,
+    config.ROLES.LEADER
   ].filter(Boolean);
 }
+
 
 async function syncWarnRoles(member, count) {
   if (!member) return;
@@ -562,6 +564,13 @@ async function handleScladDiscipline(interaction, client) {
   }
 }
 
-module.exports = { scladDisciplineCommands, handleScladDiscipline };
+module.exports = {
+  scladDisciplineCommands,
+  handleScladDiscipline,
+  buildScladEmbed,
+  buildScladButtons,
+  buildDisciplineEmbed,
+  buildDisciplineButtons
+};
 
 

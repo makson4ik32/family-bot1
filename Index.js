@@ -1,5 +1,6 @@
 require('dotenv').config();
 const config = require('./config');
+const { getJson, saveJson } = require('./db');
 
 const { promoCommand, handlePromo } = require('./promo');
 const { portfolioCommand, handlePortfolio } = require('./portfolio');
@@ -50,6 +51,27 @@ const client = new Client({
   ]
 });
 
+function touchActivity(userId) {
+  if (!userId) return;
+  const act = getJson('activity_data.json', {});
+  const now = Date.now();
+  if (!act[userId] || (now - (act[userId].lastSeen || 0)) > 60_000) {
+    act[userId] = { lastSeen: now };
+    saveJson('activity_data.json', act);
+  }
+}
+
+client.on('messageCreate', (msg) => {
+  if (!msg.guild || msg.author?.bot) return;
+  touchActivity(msg.author.id);
+});
+
+client.on('voiceStateUpdate', (oldState, newState) => {
+  if (newState.member && !newState.member.user.bot && newState.channelId) {
+    touchActivity(newState.member.id);
+  }
+});
+
 const embedCommand = new SlashCommandBuilder()
   .setName('эмбед')
   .setDescription('Отправить красивое Embed-сообщение от имени бота')
@@ -62,6 +84,8 @@ const embedCommand = new SlashCommandBuilder()
 
 client.on('interactionCreate', async interaction => {
   try {
+    touchActivity(interaction.user.id);
+
     if (interaction.isChatInputCommand()) {
       const cmd = interaction.commandName;
 
@@ -115,7 +139,7 @@ client.on('interactionCreate', async interaction => {
       if (id.includes('warn')) return await handleWarns(interaction, client);
       if (id.startsWith('evt_')) return await handleEvents(interaction, client);
       if (id.startsWith('eco_')) return await handleEconomy(interaction, client);
-      if (id.startsWith('rec_')) return await handleRecruit(interaction, client);
+      if (id.startsWith('rec_') || id.startsWith('recruit_')) return await handleRecruit(interaction, client);
       if (id.startsWith('ext_')) return await handleExtra(interaction, client);
       if (id.startsWith('rules_')) return await handleRules(interaction);
       if (id.startsWith('fb_')) return await handleFeedback(interaction, client);

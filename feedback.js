@@ -17,8 +17,10 @@ const ideaVotes = new Map();
 function isLeaderOrAdmin(member) {
   return config.OWNER_IDS.includes(member.id) ||
          member.permissions.has(PermissionFlagsBits.Administrator) ||
-         (config.ROLES.ASSISTANT && member.roles.cache.has(config.ROLES.ASSISTANT));
+         (config.ROLES.LEADER && member.roles.cache.has(config.ROLES.LEADER)) ||
+         (config.ROLES.DEP_LEADER && member.roles.cache.has(config.ROLES.DEP_LEADER));
 }
+
 
 const feedbackCommand = new SlashCommandBuilder()
   .setName('панель_связи')

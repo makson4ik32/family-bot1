@@ -14,13 +14,11 @@ const ROLES = {
   RANK_4_MAIN_PLUS: '1569659413503938620', // 4 | Main+
   RECRUIT: '1569659405828624414',          // 5 | Recruit
   RANK_6_HIGH: '1569659399587364884',      // 6 | High
-  DEP_CHIEF: '1569659398857433228',        // 7 | Dep Chief
-  DEP_CHIEF_RECRUIT: '1570103807994503309',// Dep Chief Recruit
-  CHIEF_RECRUIT: '1569659397230170177',    // Chief Recruit
+  DEP_CHIEF_RECRUIT: '1570103807994503309',// 7 | Dep Chief Recruit
+  CHIEF_RECRUIT: '1569659397230170177',    // 8 | Chief Recruit
   CALLER: '1569659393736183889',           // 9 | Caller
-    DEP_LEADER: '1569659392784343120', // 10 | Dep Leader
-  LEADER: '1569659391701946389',         // 11 | Leader
-
+  DEP_LEADER: '1569659392784343120',       // 10 | Dep Leader
+  LEADER: '1569659391701946389',           // 11 | Leader
 
   // ================= РОЛИ СОСТАВА И СБОРОВ =================
   FAMQ: '1569659424401006633',             // Общая роль участника семьи
@@ -35,8 +33,7 @@ const ROLES = {
   VERIF: '1569744106551255192',            // Verif
   TIER_CHECKER: '1569659406831067137',     // Tier Checker
   SCLAD: '1569659419308855377',            // Sclad
-  DISCIPLINE: '1569659421066534912'        // дисциплина
-
+  DISCIPLINE: '1569659421066534912'        // Дисциплина
 };
 
 module.exports = {
@@ -55,6 +52,9 @@ module.exports = {
     WARNS_WORKOFF: '1569659445342904353',
     PORTFOLIO_CATEGORY: '1569747363919298561',
 
+    // Отдельная категория для приватных каналов-заявок в семью (впишите ID категории):
+    RECRUIT_CATEGORY: '1569747363919298561',
+
     TAGS: '1569659437587767339',
     CAPT_TAGS: '1569659495716487178',
 
@@ -72,7 +72,6 @@ module.exports = {
     STAFF_APPS: '1570524086793408534',
     MAIN_RECRUIT_APPS: '1569659510321062009',
 
-    // Укажите ID второго канала для вопросов лидеру, если они разделены:
     IDEAS: '1569659452351713340',
     LEADER_QUESTIONS: '1569659452351713340'
   },
