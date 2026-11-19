@@ -11,12 +11,11 @@ const { economyCommands, handleEconomy, startVoicePointsTracker } = require('./e
 
 const { recruitCommands, handleRecruit } = require('./recruit');
 const { extraCommands, handleExtra } = require('./extra_features');
-const adminModule = require('./admin_panel');
+const { adminCommand, handleAdmin } = require('./admin_panel');
 const { rulesCommand, handleRules } = require('./rules');
 const { feedbackCommand, handleFeedback } = require('./feedback');
-
-const adminCommand = adminModule.adminCommand || (Array.isArray(adminModule.adminCommands) ? adminModule.adminCommands[0] : null);
-const handleAdmin = adminModule.handleAdmin || adminModule.handleAdminPanel;
+const { scladDisciplineCommands, handleScladDiscipline } = require('./sclad_discipline');
+const { automationCommands, handleAutomation, setupAutomation } = require('./automation');
 
 const {
   Client,
@@ -39,6 +38,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
@@ -97,15 +97,18 @@ client.on('interactionCreate', async interaction => {
       if (['панель_баллов', 'панель_магазина', 'панель_выплат', 'топ_баллов', 'выдать_баллы'].includes(cmd)) return await handleEconomy(interaction, client);
       if (['панель_рекрутинга', 'панель_тира', 'панель_должностей', 'рейтинг'].includes(cmd)) return await handleRecruit(interaction, client);
       if (['профиль', 'панель_розыгрышей', 'розыгрыш', 'панель_скупки', 'панель_контрактов'].includes(cmd)) return await handleExtra(interaction, client);
-      if (cmd === 'админ_панель' && handleAdmin) return await handleAdmin(interaction, client);
+      if (cmd === 'админ_панель') return await handleAdmin(interaction, client);
       if (cmd === 'панель_правил') return await handleRules(interaction);
       if (cmd === 'панель_связи') return await handleFeedback(interaction, client);
+      if (['панель_склада', 'панель_дисциплины'].includes(cmd)) return await handleScladDiscipline(interaction, client);
+      if (['панель_карт', 'добавить_карту'].includes(cmd)) return await handleAutomation(interaction);
     }
 
     if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
       const id = interaction.customId;
 
-      if (id.startsWith('ap_') && handleAdmin) return await handleAdmin(interaction, client);
+      if (id.startsWith('ap_')) return await handleAdmin(interaction, client);
+      if (id.startsWith('auto_')) return await handleAutomation(interaction);
       if (id.includes('promo') || id.startsWith('modal_reject_')) return await handlePromo(interaction, client);
       if (id.includes('portfolio')) return await handlePortfolio(interaction);
       if (id.includes('afk') || id.includes('vacation') || id === 'btn_return_active') return await handleAfk(interaction, client);
@@ -116,6 +119,7 @@ client.on('interactionCreate', async interaction => {
       if (id.startsWith('ext_')) return await handleExtra(interaction, client);
       if (id.startsWith('rules_')) return await handleRules(interaction);
       if (id.startsWith('fb_')) return await handleFeedback(interaction, client);
+      if (id.startsWith('sd_')) return await handleScladDiscipline(interaction, client);
     }
   } catch (error) {
     console.error('❌ Ошибка при обработке взаимодействия:', error);
@@ -131,6 +135,7 @@ client.once('clientReady', async () => {
     await guild.members.fetch().catch(console.error);
   }
   setupLogs(client);
+  setupAutomation(client);
   startVoicePointsTracker(client);
   console.log(`✅ Бот ${client.user.tag} успешно запущен и оптимизирован!`);
 });
@@ -140,7 +145,8 @@ client.once('clientReady', async () => {
     const rawCommands = [
       embedCommand, promoCommand, portfolioCommand, afkCommand, eventCommand,
       adminCommand, rulesCommand, feedbackCommand,
-      ...(warnCommands || []), ...(economyCommands || []), ...(recruitCommands || []), ...(extraCommands || [])
+      ...(warnCommands || []), ...(economyCommands || []), ...(recruitCommands || []),
+      ...(extraCommands || []), ...(scladDisciplineCommands || []), ...(automationCommands || [])
     ].filter(cmd => cmd && typeof cmd.toJSON === 'function');
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);

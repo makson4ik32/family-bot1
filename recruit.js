@@ -2,6 +2,9 @@ const config = require('./config');
 const settings = require('./settings');
 const fs = require('fs');
 const path = require('path');
+const { publishPanelToChannel } = require('./panel_manager');
+const { moveToFreeInterviewChannel } = require('./automation');
+
 const {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -49,6 +52,24 @@ function canReviewStaff(member) {
 
 function formatPingRoles(roleIds) {
   return (roleIds || []).filter(Boolean).map(r => `<@&${r}>`).join(' ');
+}
+
+function setRecruiterField(embedBuilder, name, value) {
+  const fields = [...(embedBuilder.data.fields || [])];
+  const idx = fields.findIndex(f =>
+    f.name.includes('На рассмотрении') ||
+    f.name.includes('Обзвонник') ||
+    f.name.includes('Принял') ||
+    f.name.includes('Отклонил') ||
+    f.name.includes('Решение руководства')
+  );
+  if (idx !== -1) {
+    fields[idx] = { name, value, inline: false };
+  } else {
+    fields.push({ name, value, inline: false });
+  }
+  embedBuilder.setFields(fields);
+  return embedBuilder;
 }
 
 function buildModalFromFields(customId, title, fieldsList) {
@@ -110,48 +131,18 @@ async function handleRecruit(interaction, client) {
 
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'панель_рекрутинга') {
-      const embed = settings.applyPanelStyle(new EmbedBuilder(), recTxt, '#E74C3C');
-      const row = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('rec_select_branch')
-          .setPlaceholder(recTxt.placeholder)
-          .addOptions([
-            { label: recTxt.options.captLabel, description: recTxt.options.captDesc, value: 'Capt' },
-            { label: recTxt.options.rpLabel, description: recTxt.options.rpDesc, value: 'RP' }
-          ])
-      );
-      await interaction.channel.send({ embeds: [embed], components: [row] });
-      return interaction.reply({ content: '✅ Панель рекрутинга создана!', ephemeral: true });
+      const res = await publishPanelToChannel(interaction.guild, 'RECRUIT', interaction.channel.id);
+      return interaction.reply({ content: res.ok ? '✅ Панель рекрутинга создана!' : `❌ ${res.error}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'панель_тира') {
-      const embed = settings.applyPanelStyle(new EmbedBuilder(), tierTxt, '#2ECC71');
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('rec_open_tier_ticket')
-          .setLabel(tierTxt.buttonLabel)
-          .setStyle(ButtonStyle.Success)
-      );
-      await interaction.channel.send({ embeds: [embed], components: [row] });
-      return interaction.reply({ content: '✅ Панель тиров создана!', ephemeral: true });
+      const res = await publishPanelToChannel(interaction.guild, 'TIER', interaction.channel.id);
+      return interaction.reply({ content: res.ok ? '✅ Панель тиров создана!' : `❌ ${res.error}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'панель_должностей') {
-      const embed = settings.applyPanelStyle(new EmbedBuilder(), appTxt, '#9B59B6');
-      const options = Object.entries(settings.ROLE_REWARDS.STAFF_APPS).map(([key, info]) => ({
-        label: info.label,
-        description: `Подать заявку на ${info.label}`,
-        value: key
-      }));
-
-      const row = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('rec_select_staff_role')
-          .setPlaceholder(appTxt.placeholder)
-          .addOptions(options)
-      );
-      await interaction.channel.send({ embeds: [embed], components: [row] });
-      return interaction.reply({ content: '✅ Панель заявок создана!', ephemeral: true });
+      const res = await publishPanelToChannel(interaction.guild, 'STAFF_APPS', interaction.channel.id);
+      return interaction.reply({ content: res.ok ? '✅ Панель заявок создана!' : `❌ ${res.error}`, ephemeral: true });
     }
 
     if (interaction.commandName === 'рейтинг') {
@@ -172,11 +163,10 @@ async function handleRecruit(interaction, client) {
     }
   }
 
-   if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_branch') {
+  if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_branch') {
     const adminFile = path.join(__dirname, 'admin_data.json');
     const adminData = loadJson(adminFile);
 
-    // 1. Проверка, открыт ли набор
     if (adminData.recruitOpen === false) {
       return interaction.reply({
         content: '🔴 **Набор в семью сейчас закрыт!** Следите за новостями в каналах сервера.',
@@ -184,7 +174,6 @@ async function handleRecruit(interaction, client) {
       });
     }
 
-    // 2. Проверка, не находится ли кандидат в чёрном списке
     const blacklist = Array.isArray(adminData.blacklist) ? adminData.blacklist : [];
     const bannedEntry = blacklist.find(b => b.userId === interaction.user.id);
     if (bannedEntry) {
@@ -194,7 +183,7 @@ async function handleRecruit(interaction, client) {
       });
     }
 
-    const branch = interaction.values[0];
+    const branch = interaction.values.at(0);
     const modal = buildModalFromFields(
       `rec_modal_join_${branch}`,
       `${recTxt.modalTitlePrefix} (${branch})`,
@@ -202,7 +191,6 @@ async function handleRecruit(interaction, client) {
     );
     return interaction.showModal(modal);
   }
-
 
   if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_modal_join_')) {
     const branch = interaction.customId.replace('rec_modal_join_', '');
@@ -238,23 +226,21 @@ async function handleRecruit(interaction, client) {
     await queueCh.send({ content: pingText || undefined, embeds: [embed], components: [row] });
     return interaction.reply({ content: recTxt.replySent, ephemeral: true });
   }
-
   if (interaction.isButton() && interaction.customId.startsWith('rec_review_')) {
     if (!canRecruit(interaction.member)) {
       return interaction.reply({ content: '❌ Брать заявки на рассмотрение могут только назначенные обзвонники!', ephemeral: true });
     }
 
     const candidateId = interaction.customId.replace('rec_review_', '');
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-      .setColor('#F39C12')
-      .addFields({ name: '👀 На рассмотрении', value: `Заявку взял(а) <@${interaction.user.id}>`, inline: false });
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#F39C12');
+    setRecruiterField(updatedEmbed, '🎙 Обзвонник (на рассмотрении)', `<@${interaction.user.id}>`);
 
-    const updatedRow = ActionRowBuilder.from(interaction.message.components[0]);
-    updatedRow.components[0].setDisabled(true).setLabel('👀 На рассмотрении');
+    const updatedRow = ActionRowBuilder.from(interaction.message.components.at(0));
+    updatedRow.components.at(0).setDisabled(true).setLabel('👀 На рассмотрении');
 
     await interaction.update({ embeds: [updatedEmbed], components: [updatedRow] });
 
-       const candidate = await client.users.fetch(candidateId).catch(() => null);
+    const candidate = await client.users.fetch(candidateId).catch(() => null);
     if (candidate) {
       await candidate.send(
         `👀 Ваша заявка на вступление в семью **${interaction.guild.name}** взята на рассмотрение обзвонником **${interaction.user.tag}** (<@${interaction.user.id}>).`
@@ -272,17 +258,28 @@ async function handleRecruit(interaction, client) {
     const candidateId = interaction.customId.replace('rec_take_', '');
     const voiceId = callersCfg.WAITING_VOICE_ID || config.CHANNELS.WAITING_VOICE;
 
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#3498DB');
+    setRecruiterField(updatedEmbed, '🎙 Обзвонник (вызван на обзвон)', `<@${interaction.user.id}>`);
+    await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
+
+    const movedChannel = await moveToFreeInterviewChannel(interaction.guild, interaction.member, candidateId);
+    const targetVoiceMention = movedChannel ? `<#${movedChannel.id}>` : `<#${voiceId}>`;
+
     const chText = (callersCfg.RECRUIT_CALL_CHANNEL_MSG || '📞 Обзвонник {caller} вызвал кандидата {candidate} на обзвон в {voice}!')
       .replace('{caller}', `<@${interaction.user.id}>`)
       .replace('{candidate}', `<@${candidateId}>`)
-      .replace('{voice}', `<#${voiceId}>`);
+      .replace('{voice}', targetVoiceMention);
 
     const dmText = (callersCfg.RECRUIT_CALL_DM_MSG || '📞 Обзвонник **{caller}** вызывает вас на обзвон в семью **{guild}**!\nЗайдите в голосовой канал ожидания: {voice}')
       .replace('{caller}', interaction.user.tag)
       .replace('{guild}', interaction.guild.name)
-      .replace('{voice}', `<#${voiceId}>`);
+      .replace('{voice}', targetVoiceMention);
 
-    await interaction.reply({ content: callersCfg.CHECKLIST || '📞 Кандидат вызван на обзвон.', ephemeral: true });
+    const autoMoveNote = movedChannel
+      ? `\n🔊 **Вы и кандидат автоматически переведены в канал ${movedChannel.name}!**`
+      : '';
+
+    await interaction.reply({ content: `${callersCfg.CHECKLIST || '📞 Кандидат вызван на обзвон.'}${autoMoveNote}`, ephemeral: true });
     await interaction.channel.send(chText);
 
     const candidate = await client.users.fetch(candidateId).catch(() => null);
@@ -297,12 +294,12 @@ async function handleRecruit(interaction, client) {
       return interaction.reply({ content: '❌ Принимать заявки могут только назначенные обзвонники!', ephemeral: true });
     }
     const parts = interaction.customId.split('_');
-    const candidateId = parts[2];
-    const branch = parts[3];
+    const candidateId = parts.at(2);
+    const branch = parts.at(3);
 
-    const fields = interaction.message.embeds[0]?.fields || [];
-    const nickVal = fields[1]?.value || '';
-    const staticVal = fields[2]?.value || '';
+    const fields = interaction.message.embeds.at(0)?.fields || [];
+    const nickVal = fields.at(1)?.value || '';
+    const staticVal = fields.at(2)?.value || '';
     const defaultNick = nickVal ? `${nickVal} | #${staticVal.replace(/#/g, '')}` : 'Nick_Name | #00000';
 
     const modal = new ModalBuilder()
@@ -322,20 +319,15 @@ async function handleRecruit(interaction, client) {
     return interaction.showModal(modal);
   }
 
-  // Финальное принятие в семью — ВЫДАЁТ начальные роли из settings.js
   if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_finalok_')) {
     const parts = interaction.customId.split('_');
-    const candidateId = parts[2];
-    const branch = parts[3];
+    const candidateId = parts.at(2);
+    const branch = parts.at(3);
     const finalNick = interaction.fields.getTextInputValue('final_nick');
 
-    const rolesToAdd = branch === 'Capt'
-      ? settings.ROLE_REWARDS.JOIN_CAPT_ADD
-      : settings.ROLE_REWARDS.JOIN_RP_ADD;
-
-    const rolesToRemove = branch === 'Capt'
-      ? settings.ROLE_REWARDS.JOIN_CAPT_REMOVE
-      : settings.ROLE_REWARDS.JOIN_RP_REMOVE;
+    const rolesCfg = settings.getJoinRoles(branch);
+    const rolesToAdd = rolesCfg.add;
+    const rolesToRemove = rolesCfg.remove;
 
     const member = await interaction.guild.members.fetch(candidateId).catch(() => null);
     if (member) {
@@ -373,15 +365,14 @@ async function handleRecruit(interaction, client) {
       await resCh.send({ content: `<@${candidateId}>`, embeds: [resEmbed] });
     }
 
-    const doneEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+    const doneEmbed = EmbedBuilder.from(interaction.message.embeds.at(0))
       .setColor('#2ECC71')
-      .setTitle('✅ Заявка ОДОБРЕНА')
-      .addFields({ name: '👮 Принял', value: `<@${interaction.user.id}> (\`${finalNick}\`)`, inline: false });
+      .setTitle('✅ Заявка ОДОБРЕНА');
+    setRecruiterField(doneEmbed, '👮 Принял (Обзвонник)', `<@${interaction.user.id}> (\`${finalNick}\`)`);
 
     return interaction.update({ content: '', embeds: [doneEmbed], components: [] });
   }
 
-  // Отклонить новичка
   if (interaction.isButton() && interaction.customId.startsWith('rec_no_')) {
     if (!canRecruit(interaction.member)) {
       return interaction.reply({ content: '❌ Отклонять заявки могут только назначенные обзвонники!', ephemeral: true });
@@ -405,8 +396,8 @@ async function handleRecruit(interaction, client) {
 
   if (interaction.isModalSubmit() && interaction.customId.startsWith('rec_finalno_')) {
     const parts = interaction.customId.split('_');
-    const candidateId = parts[2];
-    const msgId = parts[3];
+    const candidateId = parts.at(2);
+    const msgId = parts.at(3);
     const reason = interaction.fields.getTextInputValue('no_reason');
 
     addStaffRating(interaction.user.id, 'declined');
@@ -427,20 +418,18 @@ async function handleRecruit(interaction, client) {
 
     const origMsg = await interaction.channel.messages.fetch(msgId).catch(() => null);
     if (origMsg && origMsg.embeds.length > 0) {
-      const rejEmbed = EmbedBuilder.from(origMsg.embeds[0])
+      const rejEmbed = EmbedBuilder.from(origMsg.embeds.at(0))
         .setColor('#E74C3C')
         .setTitle('❌ Заявка ОТКЛОНЕНА')
-        .addFields(
-          { name: '👮 Отклонил', value: `<@${interaction.user.id}>`, inline: true },
-          { name: '💬 Причина', value: reason, inline: false }
-        );
+        .addFields({ name: '💬 Причина', value: reason, inline: false });
+      setRecruiterField(rejEmbed, '👮 Отклонил (Обзвонник)', `<@${interaction.user.id}>`);
       await origMsg.edit({ content: '', embeds: [rejEmbed], components: [] });
     }
 
     return interaction.reply({ content: '✅ Отказ опубликован в итогах заявок.', ephemeral: true });
   }
 
-    // 3. TIER ПРОВЕРКА
+  // 3. TIER ПРОВЕРКА
   if (interaction.isButton() && interaction.customId === 'rec_open_tier_ticket') {
     const existingTicket = interaction.guild.channels.cache.find(
       c => c.parentId === config.CHANNELS.TIER_CATEGORY &&
@@ -464,7 +453,7 @@ async function handleRecruit(interaction, client) {
           allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory]
         },
         {
-          id: config.ROLES.TIER_CHECKER,
+                    id: config.ROLES.TIER_CHECKER,
           allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory]
         },
         {
@@ -523,7 +512,7 @@ async function handleRecruit(interaction, client) {
     setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
   }
 
-  // 4. ЗАЯВКИ НА РАНГИ И ДОЛЖНОСТИ — РОЛИ НЕ ВЫДАЮТСЯ ПРИ ОДОБРЕНИИ
+  // 4. ЗАЯВКИ НА РАНГИ И ДОЛЖНОСТИ
   if (interaction.isStringSelectMenu() && interaction.customId === 'rec_select_staff_role') {
     const roleKey = interaction.values.at(0);
     const baseCfg = settings.ROLE_REWARDS.STAFF_APPS[roleKey];
@@ -614,9 +603,8 @@ async function handleRecruit(interaction, client) {
     const appKey = parts.slice(3).join('_');
     const roleInfo = getStaffRoleConfig(appKey);
 
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0))
-      .setColor('#F39C12')
-      .addFields({ name: '👀 На рассмотрении', value: `Заявку взял(а) <@${interaction.user.id}>`, inline: false });
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor('#F39C12');
+    setRecruiterField(updatedEmbed, '👀 На рассмотрении', `Заявку взял(а) <@${interaction.user.id}>`);
 
     const updatedRow = ActionRowBuilder.from(interaction.message.components.at(0));
     updatedRow.components.at(0).setDisabled(true).setLabel('👀 На рассмотрении');
@@ -643,17 +631,20 @@ async function handleRecruit(interaction, client) {
     const roleInfo = getStaffRoleConfig(appKey);
     const voiceId = callersCfg.WAITING_VOICE_ID || config.CHANNELS.WAITING_VOICE;
 
-        const chText = (callersCfg.STAFF_CALL_CHANNEL_MSG || '📞 {caller} вызывает кандидата {candidate} на обзвон по заявке **{role}** в {voice}!')
+    const movedChannel = await moveToFreeInterviewChannel(interaction.guild, interaction.member, candidateId);
+    const targetVoiceMention = movedChannel ? `<#${movedChannel.id}>` : `<#${voiceId}>`;
+
+    const chText = (callersCfg.STAFF_CALL_CHANNEL_MSG || '📞 {caller} вызывает кандидата {candidate} на обзвон по заявке **{role}** в {voice}!')
       .replace('{caller}', `<@${interaction.user.id}>`)
       .replace('{candidate}', `<@${candidateId}>`)
       .replace('{role}', roleInfo.label)
-      .replace('{voice}', `<#${voiceId}>`);
+      .replace('{voice}', targetVoiceMention);
 
     const dmText = (callersCfg.STAFF_CALL_DM_MSG || '📞 Руководство **{caller}** вызывает вас на обзвон по заявке **{role}** в семье **{guild}**!\nЗайдите в голосовой канал: {voice}')
       .replace('{caller}', interaction.user.tag)
       .replace('{role}', roleInfo.label)
       .replace('{guild}', interaction.guild.name)
-      .replace('{voice}', `<#${voiceId}>`);
+      .replace('{voice}', targetVoiceMention);
 
     await interaction.reply(chText);
 
@@ -664,13 +655,12 @@ async function handleRecruit(interaction, client) {
     return;
   }
 
-    // Одобрить или отказать в заявке на ранг/должность — БЕЗ ВЫДАЧИ РОЛЕЙ (роли выдадутся только по отчёту!)
   if (interaction.isButton() && (interaction.customId.startsWith('rec_staffpass_') || interaction.customId.startsWith('rec_stafffail_'))) {
     if (!canReviewStaff(interaction.member)) {
       return interaction.reply({ content: '❌ Доступно только проверяющим из настроек!', ephemeral: true });
     }
 
-    const parts = interaction.customId.split('_');
+        const parts = interaction.customId.split('_');
     const actionType = parts.at(1);
     const targetId = parts.at(2);
     const appKey = parts.slice(3).join('_');
@@ -692,17 +682,11 @@ async function handleRecruit(interaction, client) {
       await resCh.send({ content: `<@${targetId}>`, embeds: [resEmbed] });
     }
 
-    const upd = EmbedBuilder.from(interaction.message.embeds.at(0))
-      .setColor(passed ? '#2ECC71' : '#E74C3C')
-      .addFields({
-        name: '👮 Решение руководства',
-        value: `${passed ? '✅ Одобрено (роль выдаётся по отчёту)' : '❌ Отказано'} — <@${interaction.user.id}>`,
-        inline: false
-      });
+    const upd = EmbedBuilder.from(interaction.message.embeds.at(0)).setColor(passed ? '#2ECC71' : '#E74C3C');
+    setRecruiterField(upd, '👮 Решение руководства', `${passed ? '✅ Одобрено (роль выдаётся по отчёту)' : '❌ Отказано'} — <@${interaction.user.id}>`);
 
     return interaction.update({ content: '', embeds: [upd], components: [] });
   }
 }
 
 module.exports = { recruitCommands, handleRecruit };
-

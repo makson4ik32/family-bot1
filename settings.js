@@ -5,10 +5,10 @@ function loadCustomPanels() {
   return getJson('panels_custom.json', {});
 }
 
+function loadCustomRoles() {
+  return getJson('roles_custom.json', {});
+}
 
-// =========================================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ОФОРМЛЕНИЯ
-// =========================================================================
 function resolveColor(hexColor, fallback = '#2B2D31') {
   if (!hexColor || typeof hexColor !== 'string') return fallback;
   const clean = hexColor.trim();
@@ -38,15 +38,11 @@ function applyPanelStyle(embed, panelCfg = {}, defaultColor = '#2B2D31') {
   return embed;
 }
 
-// =========================================================================
-// НАСТРОЙКА ВСЕХ ПАНЕЛЕЙ, ТЕКСТОВ, ЦВЕТОВ И КАРТИНОК
-// =========================================================================
 const PANELS = {
-  // 1. РЕКРУТИНГ В СЕМЬЮ (/панель_рекрутинга)
   RECRUIT: {
     title: '👋 Путь в семью начинается здесь!',
     description:
-      `• Уведомление о приглашении на обзвон обычно отправляется в личные сообщения. Если ЛС закрыты, оно отправляется в канал — <#${config.CHANNELS.RECRUIT_RESULTS}>. В этот канал также приходят уведомления об отказе в наборе.\n\n` + // Канал итогов новичков
+      `• Уведомление о приглашении на обзвон обычно отправляется в личные сообщения. Если ЛС закрыты, оно отправляется в канал — <#${config.CHANNELS.RECRUIT_RESULTS}>. В этот канал также приходят уведомления об отказе в наборе.\n\n` +
       'Обычно заявки обрабатываются в течение 24 часов — всё зависит от того, насколько загружены наши рекрутеры на данный момент.\n\n' +
       'Подать заявку можно только при открытом наборе. Если не выходит — набор закрыт. Внимательно прочтите сообщение ниже.\n\n' +
       '⚠️ **Набор в семью закрыт для лиц младше 16 лет.**\n\n' +
@@ -74,7 +70,6 @@ const PANELS = {
     ]
   },
 
-  // 2. ПРОВЕРКА TIER (/панель_тира)
   TIER: {
     title: '🎯 Получение Tier-роли (Tier 1 / 2 / 3)',
     description: 'Нажми кнопку ниже, чтобы создать закрытый канал для проверки твоей стрельбы (откаты или 1х1 на ГГ).',
@@ -86,7 +81,6 @@ const PANELS = {
     ticketWelcome: '👋 Привет! Прикрепи сюда свои откаты стрельбы или напиши, когда готов пройти проверку на ГГ.'
   },
 
-  // 3. ЗАЯВКИ НА РАНГИ И ДОЛЖНОСТИ (/панель_должностей) — РОЛИ ЗДЕСЬ НЕ ВЫДАЮТСЯ
   STAFF_APPS: {
     title: '👔 Заявки на ранги и должности',
     description:
@@ -106,7 +100,6 @@ const PANELS = {
     ]
   },
 
-  // 4. ОТЧЁТЫ НА ПОВЫШЕНИЕ (/панель_повышения)
   PROMO: {
     title: '📈 СИСТЕМА ПОВЫШЕНИЯ',
     description:
@@ -115,33 +108,23 @@ const PANELS = {
       '• Наличие 150 Баллов\n' +
       '• Скрин с 5 мп\n' +
       '• Создать личный портфель в <#1569659440477773824>\n\n' +
-
       '**2(Begov)-3(Main):**\n' +
       '• Наличие 150 баллов\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
       '**3(Main)-4(Main+):**\n' +
       '• Наличие 250 баллов\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
       '**4(Main+)-5(Recruiting):**\n' +
       '• Наличие 350 баллов\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
       '**5(Recruiting)-6(High):**\n' +
       '• Наличие 350 баллов\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
       '**6(High)-7(Dep Chief):**\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
-      '**7(Dep Chief)-8(Chief):**\n' +
+      '**7(Dep Chief)-Chief Recruit:**\n' +
       '• Ссылка на одобренную заявку\n\n' +
-
-      '**8(Chief)-9(Caller):**\n' +
-      '• Ссылка на одобренную заявку\n\n' +
-
-      '**9(Caller)-10(Assistant):**\n' +
+      '**9(Caller):**\n' +
       '• Ссылка на одобренную заявку',
     color: '#3498DB',
     image: '',
@@ -150,7 +133,6 @@ const PANELS = {
     placeholder: '👇 Выбери ранг для повышения...'
   },
 
-  // 5. ЛИЧНЫЙ ПОРТФЕЛЬ (/панель_портфеля)
   PORTFOLIO: {
     title: '💼 Личный портфель участника',
     description:
@@ -163,7 +145,6 @@ const PANELS = {
     buttonLabel: '📁 Создать личный портфель'
   },
 
-  // 6. АФК И ОТПУСК (/панель_афк)
   AFK: {
     title: '💤 Учёт отсутствия | АФК и Отпуск',
     description:
@@ -180,13 +161,12 @@ const PANELS = {
     btnReturn: '🟢 Вернуться в строй'
   },
 
-  // 7. СБОРЫ НА МЕРОПРИЯТИЯ (/панель_сборов)
   EVENTS: {
     title: '⚔️ Панель управления сборами | Капты, MCL, ВЗ, РП',
     description:
       'Нажми на нужную кнопку ниже, чтобы запустить сбор состава.\n' +
-      `• Сборы на **Капт** публикуются в <#${config.CHANNELS.CAPT_TAGS}>.\n` + // Канал тегов Capt
-      `• Сборы на **MCL, ВЗ и РП** публикуются в <#${config.CHANNELS.TAGS}>.\n\n` + // Общий канал тегов Family
+      `• Сборы на **Капт** публикуются в <#${config.CHANNELS.CAPT_TAGS}>.\n` +
+      `• Сборы на **MCL, ВЗ и РП** публикуются в <#${config.CHANNELS.TAGS}>.\n\n` +
       '• **Сортировка:** участники выстраиваются по приоритету ролей (`Caller` → `Coach` → `Tier 1–3` → `Capt` → `RP`).\n' +
       '• **Итог матча:** после окончания мероприятия нажми **«⚙️ Управление сбором»** и отметь **Победу** или **Поражение**.',
     color: '#E74C3C',
@@ -199,12 +179,11 @@ const PANELS = {
     btnRp: '🎭 Семейное РП'
   },
 
-    // 8. ЭКОНОМИКА: БАЛЛЫ, МАГАЗИН, ВЫПЛАТЫ
   ECONOMY: {
     voice: {
-      CHECK_INTERVAL_MINUTES: 20, // Раз в сколько минут начислять баллы за войс
-      POINTS_PER_INTERVAL: 5,     // Сколько баллов давать за 1 интервал (20 мин)
-      IGNORE_DEAFENED: true       // Не давать баллы тем, кто выключил звук (в муте ушей)
+      CHECK_INTERVAL_MINUTES: 20,
+      POINTS_PER_INTERVAL: 5,
+      IGNORE_DEAFENED: true
     },
     activities: {
       capt_win: { label: 'Победа на капте', points: 25, desc: 'Скрин итога или откат с мероприятия' },
@@ -230,7 +209,7 @@ const PANELS = {
         { id: 'p_proof', label: 'Доказательства (ссылка Imgur / YouTube)', placeholder: 'Вставьте ссылку на скриншоты или откат', style: 'PARAGRAPH', required: true }
       ]
     },
-    SHOP_PANEL: {
+       SHOP_PANEL: {
       title: '🛍 Семейный магазин наград',
       description: 'Выбери желаемую награду из списка ниже. Баллы спишутся автоматически после подтверждения.',
       color: '#9B59B6',
@@ -259,7 +238,6 @@ const PANELS = {
     }
   },
 
-  // 9. ДОП. ПАНЕЛИ: РОЗЫГРЫШИ, СКУПКА, КОНТРАКТЫ
   EXTRA: {
     GIVEAWAY_PANEL: {
       title: '🎉 Панель управления розыгрышами',
@@ -285,7 +263,7 @@ const PANELS = {
         '• Моды: опт. прицел — **300$** за единицу\n\n' +
         '**💸 Как получить оплату:**\n' +
         '1. Скидываете скрин с планшета — **Учёт склада**.\n' +
-        '2. Ищете свой никнейм, скрините и нажимаете кнопку ниже (или отправляете в ветку с тегом <@&' + config.ROLES.SCLAD + '>).\n' + // Тег роли Sclad
+        '2. Ищете свой никнейм, скрините и нажимаете кнопку ниже (или отправляете в ветку с тегом <@&' + config.ROLES.SCLAD + '>).\n' +
         '3. Считаете полную сумму к выплате с подсчётом предметов и их кол-ва.\n\n' +
         '⚠️ *Уточнение для многих: скупка учитывается с МП / трассы и т.д. Не учитывается взятие со склада и возвращение назад.*',
       color: '#E67E22',
@@ -306,13 +284,12 @@ const PANELS = {
     }
   },
 
-  // 10. ЦЕНТР СВЯЗИ И ИДЕЙ (/панель_связи)
   FEEDBACK: {
     title: '💬 Центр идей и связи с руководством',
     description:
       'Здесь ты можешь повлиять на развитие нашей семьи и сервера или задать вопрос напрямую лидеру!\n\n' +
-      `• **💡 Предложить идею** — улучшение Discord-сервера, бота, мероприятий или правил. Все идеи публикуются в <#${config.CHANNELS.IDEAS}> для голосования **👍 / 👎** и обсуждения.\n` + // Канал идей
-      `• **👑 Вопрос лидеру** — задай любой интересующий вопрос открыто или **анонимно**. Вопросы и ответы публикуются в <#${config.CHANNELS.LEADER_QUESTIONS}>.`, // Канал вопросов лидеру
+      `• **💡 Предложить идею** — улучшение Discord-сервера, бота, мероприятий или правил. Все идеи публикуются в <#${config.CHANNELS.IDEAS}> для голосования **👍 / 👎** и обсуждения.\n` +
+      `• **👑 Вопрос лидеру** — задай любой интересующий вопрос открыто или **анонимно**. Вопросы и ответы публикуются в <#${config.CHANNELS.LEADER_QUESTIONS}>.`,
     color: '#5865F2',
     image: '',
     thumbnail: '',
@@ -321,7 +298,6 @@ const PANELS = {
     btnQuestion: '👑 Вопрос лидеру'
   },
 
-  // 11. ВЫГОВОРЫ И ИНФОРМАЦИЯ (/панель_информация, /панель_выговоров)
   WARNS: {
     INFO_PANEL: {
       title: '⚠️ Система выговоров и дисциплина',
@@ -350,11 +326,38 @@ const PANELS = {
     }
   },
 
-  // 12. АДМИН-ПАНЕЛЬ (/админ_панель) — 18 КНОПОК БЕЗ БАЗЫ ДАННЫХ И ВЕТОК
+  SCLAD: {
+    title: '📦 Состояние и нормы семейного склада',
+    description: 'Управление нормами склада на Капт и РП дни.',
+    color: '#E74C3C',
+    image: '',
+    thumbnail: '',
+    footer: 'Управление доступно отделу Sclad и High Staff'
+  },
+
+  DISCIPLINE: {
+    title: '⚖️ Отдел Дисциплины | Контроль и санкции',
+    description: 'Панель управления дисциплиной для сотрудников отдела Discipline и High Staff.',
+    color: '#F1C40F',
+    image: '',
+    thumbnail: '',
+    footer: 'Все действия фиксируются в #админ-логи'
+  },
+
+  MAPS: {
+    title: '🗺 Тактический справочник | Карты каптов',
+    description: 'Выберите нужную карту в меню ниже, чтобы посмотреть позиции (коллы), точки захода и тактику.',
+    color: '#E67E22',
+    image: '',
+    thumbnail: '',
+    footer: 'Справочник обновляется Caller и Coach составом',
+    placeholder: '👇 Выберите карту капта...'
+  },
+
   ADMIN_PANEL: {
     title: 'Панель управления для доверенных членов семьи.',
     description:
-      'Взаимодействие с ботом осуществляется преимущественно через это меню, которое включает **18 кнопок**.\n\n' +
+      'Взаимодействие с ботом осуществляется преимущественно через это меню, которое включает **18 кнопок** + конструктор ролей и панелей.\n\n' +
       '👤 = Управление игроком (ранг, Tier, ник и поиск портфеля).\n' +
       '📊 = Голосовая активность и рейтинг участников по баллам.\n' +
       '🔍 = Аудит ролей и правильности ников состава.\n' +
@@ -379,200 +382,190 @@ const PANELS = {
     footer: 'Панель закреплена • Ответы видны только вам'
   }
 };
+const DEFAULT_MAPS = {
+  factory: {
+    name: '🏭 Завод (Factory)',
+    shortDesc: 'Ближние и средние дистанции, контроль крыш и ангаров',
+    tactics:
+      '• **Основное оружие:** Спешл Карбин Mk2, Сайга.\n' +
+      '• **Ключевые точки:** Главный ангар, Верхние мостики, ЖД-пути, Синий контейнер.\n' +
+      '• **Тактика:** 2 человека занимают верхние переходы, основа заходит через центральный пролёт под дым.',
+    image: ''
+  },
+  construction: {
+    name: '🏗 Стройка (Construction)',
+    shortDesc: 'Многоуровневая карта, важен контроль этажей и крана',
+    tactics:
+      '• **Основное оружие:** Спешл Карбин Mk2, Marksman Mk2.\n' +
+      '• **Ключевые точки:** 2-й и 3-й этажи, Лестничный пролёт, Бетонные плиты.\n' +
+      '• **Тактика:** Быстрый прожим второго яруса с двух флангов, снайперы прикрывают перебежки.',
+    image: ''
+  }
+};
 
-// =========================================================================
-// НАСТРОЙКА ВЫДАЧИ РОЛЕЙ (ТОЛЬКО ПРИ ВСТУПЛЕНИИ И В ОТЧЁТАХ НА ПОВЫШЕНИЕ!)
-// =========================================================================
-const ROLE_REWARDS = {
-  // 1. ПАНЕЛЬ РЕКРУТИНГА (/панель_рекрутинга) — Принятие новичка в Capt
-  JOIN_CAPT_ADD: [
-    config.ROLES.FAMQ,        // Общая роль участника семьи
-    config.ROLES.RP_SQUAD,    // Роль RP-состава
-    config.ROLES.RANK_1,      // Начальная роль 1 | Test
-    config.ROLES.NO_VERIF,    // Роль No Verif (до прохождения проверки)
-    config.ROLES.CAPT_SQUAD   // Роль Capt-состава
-  ],
-  JOIN_CAPT_REMOVE: [],
-
-  // 1.1 ПАНЕЛЬ РЕКРУТИНГА (/панель_рекрутинга) — Принятие новичка в RP
-  JOIN_RP_ADD: [
-    config.ROLES.FAMQ,        // Общая роль участника семьи
-    config.ROLES.RP_SQUAD,    // Роль RP-состава
-    config.ROLES.RANK_1,      // Начальная роль 1 | Test
-    config.ROLES.NO_VERIF     // Роль No Verif
-  ],
-  JOIN_RP_REMOVE: [],
-
-  // 2. ПОВЫШЕНИЕ РАНГОВ ПО ОТЧЁТУ (/панель_повышения)
-  PROMO_RANKS: {
-    rank_2: {
-      label: '2 | Begov',
-      description: '150 баллов, смена фамилии, 5 МП и портфель',
-      requirements: 'Скрин смены фамилии, 150 баллов, 5 МП, портфель',
-      add: [config.ROLES.RANK_2_BEGOV],
-      remove: [config.ROLES.RANK_1]
-    },
-    rank_3: {
-      label: '3 | Main',
-      description: '150 баллов + ссылка на одобренную заявку',
-      requirements: 'Скрин 150 баллов + ссылка на одобренную заявку',
-      add: [config.ROLES.RANK_3_MAIN],
-      remove: [config.ROLES.RANK_2_BEGOV]
-    },
-    rank_4: {
-      label: '4 | Main+',
-      description: '250 баллов + ссылка на одобренную заявку',
-      requirements: 'Скрин 250 баллов + ссылка на одобренную заявку',
-      add: [config.ROLES.RANK_4_MAIN_PLUS],
-      remove: [config.ROLES.RANK_3_MAIN]
-    },
-    rank_5: {
-      label: '5 | Recruiting',
-      description: '350 баллов + ссылка на одобренную заявку',
-      requirements: 'Скрин 350 баллов + ссылка на одобренную заявку',
-      add: [config.ROLES.RECRUIT],
-      remove: []
-    },
-    rank_6: {
-      label: '6 | High',
-      description: '350 баллов + ссылка на одобренную заявку',
-      requirements: 'Скрин 350 баллов + ссылка на одобренную заявку',
-      add: [config.ROLES.RANK_6_HIGH, config.ROLES.HIGH_STAFF],
-      remove: [config.ROLES.RECRUIT]
-    },
-    rank_7: {
-      label: '7 | Dep Chief',
-      description: 'Ссылка на одобренную заявку',
-      requirements: 'Ссылка на одобренную заявку',
-      add: [config.ROLES.DEP_CHIEF],
-      remove: [config.ROLES.RANK_6_HIGH],
-      departments: {
-        high: {
-          label: '7 | Dep Chief (High)',
-          description: 'Зам. начальника отдела High Staff',
-          add: [config.ROLES.DEP_CHIEF_HIGH, config.ROLES.HIGH_STAFF]
-        },
-        recruit: {
-          label: '7 | Dep Chief (Recruit)',
-          description: 'Зам. начальника отдела рекрутинга',
-          add: [config.ROLES.DEP_CHIEF_RECRUIT, config.ROLES.HIGH_STAFF]
-        },
-        main: {
-          label: '7 | Dep Chief (Main)',
-          description: 'Зам. начальника отдела Main',
-          add: [config.ROLES.DEP_CHIEF_MAIN, config.ROLES.HIGH_STAFF]
-        },
-        begov: {
-          label: '7 | Dep Chief (Begov)',
-          description: 'Зам. начальника отдела новичков',
-          add: [config.ROLES.DEP_CHIEF_BEGOV, config.ROLES.HIGH_STAFF]
-        }
+const BASE_PROMO_RANKS = {
+  rank_2: {
+    label: '2 | Begov',
+    description: '150 баллов, смена фамилии, 5 МП и портфель',
+    requirements: 'Скрин смены фамилии, 150 баллов, 5 МП, портфель',
+    add: [config.ROLES.RANK_2_BEGOV],
+    remove: [config.ROLES.RANK_1]
+  },
+  rank_3: {
+    label: '3 | Main',
+    description: '150 баллов + ссылка на одобренную заявку',
+    requirements: 'Скрин 150 баллов + ссылка на одобренную заявку',
+    add: [config.ROLES.RANK_3_MAIN],
+    remove: [config.ROLES.RANK_2_BEGOV]
+  },
+  rank_4: {
+    label: '4 | Main+',
+    description: '250 баллов + ссылка на одобренную заявку',
+    requirements: 'Скрин 250 баллов + ссылка на одобренную заявку',
+    add: [config.ROLES.RANK_4_MAIN_PLUS],
+    remove: [config.ROLES.RANK_3_MAIN]
+  },
+  rank_5: {
+    label: '5 | Recruiting',
+    description: '350 баллов + ссылка на одобренную заявку',
+    requirements: 'Скрин 350 баллов + ссылка на одобренную заявку',
+    add: [config.ROLES.RECRUIT],
+    remove: []
+  },
+  rank_6: {
+    label: '6 | High',
+    description: '350 баллов + ссылка на одобренную заявку',
+    requirements: 'Скрин 350 баллов + ссылка на одобренную заявку',
+    add: [config.ROLES.RANK_6_HIGH, config.ROLES.HIGH_STAFF],
+    remove: [config.ROLES.RECRUIT]
+  },
+  rank_7: {
+    label: '7 | Dep Chief',
+    description: 'Ссылка на одобренную заявку',
+    requirements: 'Ссылка на одобренную заявку',
+    add: [config.ROLES.DEP_CHIEF, config.ROLES.HIGH_STAFF],
+    remove: [config.ROLES.RANK_6_HIGH],
+    departments: {
+      general: {
+        label: '7 | Dep Chief',
+        description: 'Заместитель главы состава',
+        add: [config.ROLES.DEP_CHIEF, config.ROLES.HIGH_STAFF]
+      },
+      recruit: {
+        label: 'Dep Chief Recruit',
+        description: 'Зам. начальника отдела рекрутинга',
+        add: [config.ROLES.DEP_CHIEF_RECRUIT, config.ROLES.HIGH_STAFF]
       }
-    },
-    rank_8: {
-      label: '8 | Chief',
-      description: 'Ссылка на одобренную заявку',
-      requirements: 'Ссылка на одобренную заявку',
-      add: [config.ROLES.CHIEF],
-      remove: [config.ROLES.DEP_CHIEF],
-      departments: {
-        high: {
-          label: '8 | Chief (High)',
-          description: 'Начальник отдела High Staff',
-          add: [config.ROLES.CHIEF_HIGH, config.ROLES.HIGH_STAFF]
-        },
-        recruit: {
-          label: '8 | Chief (Recruit)',
-          description: 'Начальник отдела рекрутинга',
-          add: [config.ROLES.CHIEF_RECRUIT, config.ROLES.HIGH_STAFF]
-        },
-        main: {
-          label: '8 | Chief (Main)',
-          description: 'Начальник отдела Main',
-          add: [config.ROLES.CHIEF_MAIN, config.ROLES.HIGH_STAFF]
-        },
-        begov: {
-          label: '8 | Chief (Begov)',
-          description: 'Начальник отдела новичков',
-          add: [config.ROLES.CHIEF_BEGOV, config.ROLES.HIGH_STAFF]
-        }
-      }
-    },
-    rank_9: {
-      label: '9 | Caller',
-      description: 'Ссылка на одобренную заявку',
-      requirements: 'Ссылка на одобренную заявку',
-      add: [config.ROLES.CALLER, config.ROLES.HIGH_STAFF],
-      remove: [config.ROLES.CHIEF]
-    },
-    rank_10: {
-      label: '10 | Assistant',
-      description: 'Ссылка на одобренную заявку',
-      requirements: 'Ссылка на одобренную заявку',
-      add: [config.ROLES.ASSISTANT, config.ROLES.HIGH_STAFF],
-      remove: [config.ROLES.CALLER]
     }
   },
+  chief_recruit: {
+    label: 'Chief Recruit',
+    description: 'Ссылка на одобренную заявку',
+    requirements: 'Ссылка на одобренную заявку',
+    add: [config.ROLES.CHIEF_RECRUIT, config.ROLES.HIGH_STAFF],
+    remove: [config.ROLES.DEP_CHIEF_RECRUIT]
+  },
+  rank_9: {
+    label: '9 | Caller',
+    description: 'Ссылка на одобренную заявку',
+    requirements: 'Ссылка на одобренную заявку',
+    add: [config.ROLES.CALLER, config.ROLES.HIGH_STAFF],
+    remove: []
+  }
+};
 
+function getJoinRoles(branch) {
+  const custom = loadCustomRoles();
+  if (branch === 'Capt') {
+    return {
+      add: custom.JOIN_CAPT_ADD || [
+        config.ROLES.FAMQ,
+        config.ROLES.RP_SQUAD,
+        config.ROLES.RANK_1,
+        config.ROLES.NO_VERIF,
+        config.ROLES.CAPT_SQUAD
+      ].filter(Boolean),
+      remove: custom.JOIN_CAPT_REMOVE || []
+    };
+  }
+  return {
+    add: custom.JOIN_RP_ADD || [
+      config.ROLES.FAMQ,
+      config.ROLES.RP_SQUAD,
+      config.ROLES.RANK_1,
+      config.ROLES.NO_VERIF
+    ].filter(Boolean),
+    remove: custom.JOIN_RP_REMOVE || []
+  };
+}
 
-  // 3. ЗАЯВКИ НА РАНГИ И ДОЛЖНОСТИ (/панель_должностей) — РОЛИ НЕ ВЫДАЮТСЯ ПРИ ОДОБРЕНИИ!
+function getPromoRanks() {
+  const custom = loadCustomRoles();
+  const result = structuredClone(BASE_PROMO_RANKS);
+  if (custom.PROMO) {
+    for (const [key, override] of Object.entries(custom.PROMO)) {
+      if (result[key]) {
+        if (Array.isArray(override.add)) result[key].add = override.add;
+        if (Array.isArray(override.remove)) result[key].remove = override.remove;
+      }
+    }
+  }
+  return result;
+}
+
+const ROLE_REWARDS = {
+  get JOIN_CAPT_ADD() { return getJoinRoles('Capt').add; },
+  get JOIN_CAPT_REMOVE() { return getJoinRoles('Capt').remove; },
+  get JOIN_RP_ADD() { return getJoinRoles('RP').add; },
+  get JOIN_RP_REMOVE() { return getJoinRoles('RP').remove; },
+  get PROMO_RANKS() { return getPromoRanks(); },
+
   STAFF_APPS: {
-    main: { label: '3 | Main', isMainOrRecruit: true },          // Уходит в канал MAIN_RECRUIT_APPS
-    main_plus: { label: '4 | Main+', isMainOrRecruit: true },    // Уходит в канал MAIN_RECRUIT_APPS
-    recruit: { label: '5 | Recruit', isMainOrRecruit: true },    // Уходит в канал MAIN_RECRUIT_APPS
-    high: { label: '6 | High', isMainOrRecruit: false },         // Уходит в скрытый канал STAFF_APPS
+    main: { label: '3 | Main', isMainOrRecruit: true },
+    main_plus: { label: '4 | Main+', isMainOrRecruit: true },
+    recruit: { label: '5 | Recruit', isMainOrRecruit: true },
+    high: { label: '6 | High', isMainOrRecruit: false },
     dep_chief: {
       label: '7 | Dep Chief',
       isMainOrRecruit: false,
       departments: {
-        high: { label: '7 | Dep Chief (High)', description: 'Зам. отдела High Staff' },
-        recruit: { label: '7 | Dep Chief (Recruit)', description: 'Зам. отдела рекрутинга' },
-        main: { label: '7 | Dep Chief (Main)', description: 'Зам. отдела Main' },
-        begov: { label: '7 | Dep Chief (Begov)', description: 'Зам. отдела новичков' }
+        general: { label: '7 | Dep Chief', description: 'Общий руководящий состав' },
+        recruit: { label: 'Dep Chief Recruit', description: 'Зам. начальника отдела рекрутинга' }
       }
     },
-    chief: {
-      label: '8 | Chief',
-      isMainOrRecruit: false,
-      departments: {
-        high: { label: '8 | Chief (High)', description: 'Начальник отдела High Staff' },
-        recruit: { label: '8 | Chief (Recruit)', description: 'Начальник отдела рекрутинга' },
-        main: { label: '8 | Chief (Main)', description: 'Начальник отдела Main' },
-        begov: { label: '8 | Chief (Begov)', description: 'Начальник отдела новичков' }
-      }
-    },
-    caller: { label: '9 | Caller', isMainOrRecruit: false },       // Уходит в скрытый канал STAFF_APPS
-    assistant: { label: '10 | Assistant', isMainOrRecruit: false } // Уходит в скрытый канал STAFF_APPS
+    chief_recruit: { label: 'Chief Recruit', isMainOrRecruit: false },
+    caller: { label: '9 | Caller', isMainOrRecruit: false }
   }
 };
 
-// =========================================================================
-// НАСТРОЙКИ ОБЗВОННИКОВ И ПРОВЕРЯЮЩИХ
-// =========================================================================
 const CALLERS = {
-  // Роли, которым разрешено принимать/отклонять заявки новичков и вызывать их на обзвон:
-  RECRUIT_CALLER_ROLES: [
-    config.ROLES.RECRUIT,           // 5 | Recruit
-    config.ROLES.DEP_CHIEF_RECRUIT, // 7 | Dep Chief (Recruit)
-    config.ROLES.CHIEF_RECRUIT,     // 8 | Chief (Recruit)
-    config.ROLES.HIGH_STAFF         // High Staff
-  ],
-  // Кого тегать при подаче новой заявки новичка в семью:
-  RECRUIT_PING_ROLES: [
-    config.ROLES.RECRUIT            // 5 | Recruit
-  ],
-  // Роли, которым разрешено проверять заявки на старший состав и должности:
-  STAFF_CALLER_ROLES: [
-    config.ROLES.HIGH_STAFF,        // High Staff
-    config.ROLES.CHIEF,             // 8 | Chief
-    config.ROLES.DEP_CHIEF,         // 7 | Dep Chief
-    config.ROLES.ASSISTANT          // 10 | Assistant
-  ],
-  // Кого тегать при подаче заявки на ранг/должность:
-  STAFF_PING_ROLES: [
-    config.ROLES.HIGH_STAFF         // High Staff
-  ],
-  WAITING_VOICE_ID: config.CHANNELS.WAITING_VOICE, // Голосовой канал ожидания обзвона
+  get RECRUIT_CALLER_ROLES() {
+    const custom = loadCustomRoles();
+    return custom.RECRUIT_CALLER_ROLES || [
+      config.ROLES.RECRUIT,
+      config.ROLES.DEP_CHIEF_RECRUIT,
+      config.ROLES.CHIEF_RECRUIT,
+      config.ROLES.HIGH_STAFF
+    ].filter(Boolean);
+  },
+  get RECRUIT_PING_ROLES() {
+    const custom = loadCustomRoles();
+    return custom.RECRUIT_PING_ROLES || [config.ROLES.RECRUIT].filter(Boolean);
+  },
+  get STAFF_CALLER_ROLES() {
+    const custom = loadCustomRoles();
+    return custom.STAFF_CALLER_ROLES || [
+      config.ROLES.HIGH_STAFF,
+      config.ROLES.CHIEF_RECRUIT,
+      config.ROLES.DEP_CHIEF,
+      config.ROLES.DEP_CHIEF_RECRUIT
+    ].filter(Boolean);
+  },
+  get STAFF_PING_ROLES() {
+    const custom = loadCustomRoles();
+    return custom.STAFF_PING_ROLES || [config.ROLES.HIGH_STAFF].filter(Boolean);
+  },
+  WAITING_VOICE_ID: config.CHANNELS.WAITING_VOICE,
   CHECKLIST:
     '📋 **Чек-лист обзвона (памятка рекруту):**\n' +
     '1. Уточнить реальный возраст и часовой пояс.\n' +
@@ -585,30 +578,27 @@ const CALLERS = {
   STAFF_CALL_CHANNEL_MSG: '📞 {caller} вызывает кандидата {candidate} на обзвон по заявке **{role}** в {voice}!',
   STAFF_CALL_DM_MSG: '📞 Руководство **{caller}** вызывает вас на обзвон по заявке **{role}** в семье **{guild}**!\nЗайдите в голосовой канал: {voice}'
 };
-// Привязка ключей для живого редактирования через админ-панель
-PANELS.RECRUIT._panelKey = 'RECRUIT';
-PANELS.TIER._panelKey = 'TIER';
-PANELS.STAFF_APPS._panelKey = 'STAFF_APPS';
-PANELS.PROMO._panelKey = 'PROMO';
-PANELS.PORTFOLIO._panelKey = 'PORTFOLIO';
-PANELS.AFK._panelKey = 'AFK';
-PANELS.EVENTS._panelKey = 'EVENTS';
+
+Object.entries(PANELS).forEach(([k, v]) => {
+  if (v && typeof v === 'object' && v.title) v._panelKey = k;
+});
 PANELS.ECONOMY.POINTS_PANEL._panelKey = 'POINTS_PANEL';
 PANELS.ECONOMY.SHOP_PANEL._panelKey = 'SHOP_PANEL';
 PANELS.ECONOMY.PAYOUT_PANEL._panelKey = 'PAYOUT_PANEL';
 PANELS.EXTRA.GIVEAWAY_PANEL._panelKey = 'GIVEAWAY_PANEL';
 PANELS.EXTRA.SKUPKA_PANEL._panelKey = 'SKUPKA_PANEL';
 PANELS.EXTRA.CONTRACTS_PANEL._panelKey = 'CONTRACTS_PANEL';
-PANELS.FEEDBACK._panelKey = 'FEEDBACK';
 PANELS.WARNS.INFO_PANEL._panelKey = 'WARNS_INFO';
 PANELS.WARNS.ADMIN_PANEL._panelKey = 'WARNS_ADMIN';
-PANELS.ADMIN_PANEL._panelKey = 'ADMIN_PANEL';
 
 module.exports = {
   resolveColor,
   applyPanelStyle,
   PANELS,
+  DEFAULT_MAPS,
   ROLE_REWARDS,
+  getJoinRoles,
+  getPromoRanks,
   CALLERS
 };
-  
+
